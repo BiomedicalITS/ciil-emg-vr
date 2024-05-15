@@ -59,9 +59,9 @@ def setup_streamer():
     # Setup the streamers
     if g.USE_MYO:
         # Create Myo Streamer
-        myo_streamer(filtered=False, imu=g.USE_IMU)
+        return myo_streamer(filtered=False, imu=g.USE_IMU)
     else:
-        sifibridge_streamer(
+        return sifibridge_streamer(
             version="1_1",
             emg=True,
             imu=g.USE_IMU,
@@ -102,19 +102,18 @@ def process_data(data: np.ndarray) -> np.ndarray:
 
 
 def visualize():
-    setup_streamer()
+    p = setup_streamer()
     odh = get_online_data_handler(
         g.EMG_SAMPLING_RATE, notch_freq=g.EMG_NOTCH_FREQ, use_imu=g.USE_IMU
     )
     odh.visualize_channels(list(range(8)), 3 * g.EMG_SAMPLING_RATE)
+    return p
 
 
 if __name__ == "__main__":
-    visualize()
-
-    for f in os.listdir("./data/"):
-        f2 = f.replace("processed", "")
-        os.rename(f"./data/{f}", f"./data/processed/{f2}")
+    p = setup_streamer()
+    input("Press Enter to quit")
+    p = visualize()
 
     p = get_most_recent_checkpoint()
     print(p)
