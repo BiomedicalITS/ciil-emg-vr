@@ -1,0 +1,4 @@
+lightning
+requests
+-e "git+https://github.com/gabrielpgagne/libemg@main#egg=libemg"
+-e "git+https://github.com/SBIOML/emager-py@main#egg=emager-py"
