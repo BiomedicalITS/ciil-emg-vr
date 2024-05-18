@@ -6,7 +6,7 @@ ACCELERATOR = (
     else "mps" if torch.backends.mps.is_available() else "cpu"
 )
 
-USE_MYO = False
+USE_MYO = True
 USE_IMU = False
 
 OFFLINE_DATA_DIR = "data/offline/"
