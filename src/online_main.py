@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import json
+import socket
 
 from libemg.data_handler import OnlineDataHandler
 
@@ -11,42 +12,54 @@ import utils
 import globals as g
 
 
-def main_loop(model: EmgCNN, odh: OnlineDataHandler, voting_window: int):
+def main_loop(
+    model: EmgCNN, odh: OnlineDataHandler, voting_window: int, port: int = 5111
+):
     # TODO watch for fine tuning labels
     # TODO find a better way to watch for new data
-    voter = majority_vote.MajorityVote(voting_window)
-    with open("data/gestures/gesture_list.json", "r") as f:
-        gesture_dict = json.load(f)
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as serv:
+        serv.bind(("127.0.0.1", port))
 
-    queue_len = g.EMG_RUNNING_MEAN_LEN
-    sample_queue = np.zeros((queue_len, 1, *g.EMG_DATA_SHAPE))
+        voter = majority_vote.MajorityVote(voting_window)
+        with open("data/gestures/gesture_list.json", "r") as f:
+            gesture_dict = json.load(f)
 
-    last_shape = None
-    while True:
-        dat = odh.get_data()
-        if len(dat) == 0 or dat.shape == last_shape:
-            continue
+        queue_len = g.EMG_RUNNING_MEAN_LEN
+        sample_queue = np.zeros((queue_len, 1, *g.EMG_DATA_SHAPE))
 
-        last_shape = dat.shape
+        last_shape = None
+        while True:
+            dat = odh.get_data()
+            if len(dat) == 0 or dat.shape == last_shape:
+                continue
 
-        dat = dat[last_shape[0] - 1 :]  # new data
-        dat = dat.reshape((-1, 1, *g.EMG_DATA_SHAPE))
+            try:
+                # TODO THIS!
+                servdat = serv.recv(2048).decode("utf-8")
+                print(servdat)
+            except socket.timeout:
+                pass
 
-        sample_queue = np.concatenate((sample_queue, dat), axis=0)[len(dat) :]
+            last_shape = dat.shape
 
-        # Process
-        processed = utils.process_data(sample_queue)
+            dat = dat[last_shape[0] - 1 :]  # new data
+            dat = dat.reshape((-1, 1, *g.EMG_DATA_SHAPE))
 
-        # Predict
-        pred = model(torch.from_numpy(processed[-len(dat) :]).to(g.ACCELERATOR))
-        pred = pred.cpu().detach().numpy()
+            sample_queue = np.concatenate((sample_queue, dat), axis=0)[len(dat) :]
 
-        # Majority vote
-        topk = np.argmax(pred, axis=1)
-        voter.extend(topk)
-        maj_vote = voter.vote().item(0)
-        # TODO libemg does not map in order correctly screen guided training to labels
-        print(gesture_dict[str(g.LIBEMG_GESTURE_IDS[maj_vote])])
+            # Process
+            processed = utils.process_data(sample_queue)
+
+            # Predict
+            pred = model(torch.from_numpy(processed[-len(dat) :]).to(g.ACCELERATOR))
+            pred = pred.cpu().detach().numpy()
+
+            # Majority vote
+            topk = np.argmax(pred, axis=1)
+            voter.extend(topk)
+            maj_vote = voter.vote().item(0)
+            # TODO libemg does not map in order correctly screen guided training to labels
+            print(gesture_dict[str(g.LIBEMG_GESTURE_IDS[maj_vote])])
 
 
 if __name__ == "__main__":
@@ -58,6 +71,6 @@ if __name__ == "__main__":
         g.EMG_SAMPLING_RATE, notch_freq=g.EMG_NOTCH_FREQ, use_imu=g.USE_IMU
     )
     model = utils.get_model(False, num_classes=len(g.LIBEMG_GESTURE_IDS))
-
+    model = model.eval()
     # And now main loop
     main_loop(model, odh, g.EMG_MAJ_VOTE_MS * g.EMG_SAMPLING_RATE // 1000)

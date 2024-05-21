@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import torch
+from torch import nn
 from torch.utils.data import DataLoader
 from torch.utils.data import TensorDataset
 
@@ -12,7 +13,7 @@ from libemg.screen_guided_training import ScreenGuidedTraining
 from libemg.utils import make_regex
 from libemg.data_handler import OfflineDataHandler, OnlineDataHandler
 
-import models
+from models import EmgCNN
 import utils
 import globals as g
 
@@ -45,7 +46,7 @@ def get_training_data(
     )
 
 
-def train_model(data_dir: str, train_reps: list, test_reps: list):
+def train_model(model: nn.Module, data_dir: str, train_reps: list, test_reps: list):
     """
     TODO: validation reps?
     """
@@ -107,12 +108,7 @@ def train_model(data_dir: str, train_reps: list, test_reps: list):
         ),
         batch_size=128,
     )
-
-    model = models.EmgCNN(
-        input_shape=test_windows.shape[-2:],
-        num_classes=len(np.unique(train_metadata["classes"])),
-    )
-
+    model = model.train()
     trainer = L.Trainer(max_epochs=10)
     trainer.fit(model, train_loader)
     trainer.test(model, test_loader)
@@ -120,18 +116,22 @@ def train_model(data_dir: str, train_reps: list, test_reps: list):
 
 
 def get_reps(path: str):
+    """
+    Get all repetitions from a directory R_*
+    """
     return list(set([int(f.split("_")[1]) for f in os.listdir(path) if "R_" in f]))
 
 
-def main(sample_data):
+def main(sample_data, finetune):
+    data_dir = g.TRAIN_DATA_DIR if not finetune else g.FINETUNE_DATA_DIR
     if sample_data:
         utils.setup_streamer()
         odh = utils.get_online_data_handler(
             g.EMG_SAMPLING_RATE, notch_freq=g.EMG_NOTCH_FREQ, use_imu=g.USE_IMU
         )
-        get_training_data(odh, g.LIBEMG_GESTURE_IDS, 5, 5, g.OFFLINE_DATA_DIR)
+        get_training_data(odh, g.LIBEMG_GESTURE_IDS, 1 if finetune else 5, 5, data_dir)
 
-    reps = get_reps(g.OFFLINE_DATA_DIR)
+    reps = get_reps(data_dir)
     train_reps = reps[: int(0.8 * len(reps))]
     test_reps = reps[int(0.8 * len(reps)) :]
 
@@ -139,8 +139,13 @@ def main(sample_data):
     print("Testing on reps:", test_reps)
     print(len(train_reps), len(test_reps))
 
-    train_model(g.OFFLINE_DATA_DIR, train_reps, test_reps)
+    model = (
+        EmgCNN(g.EMG_DATA_SHAPE, len(g.LIBEMG_GESTURE_IDS))
+        if not finetune
+        else utils.get_model(True, num_classes=len(g.LIBEMG_GESTURE_IDS))
+    )
+    train_model(model, data_dir, train_reps, test_reps)
 
 
 if __name__ == "__main__":
-    main(False)
+    main(True, False)
