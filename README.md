@@ -40,3 +40,21 @@ After an initial screen guided training step (or not?),
 
 - [LibEMG doc](https://libemg.github.io/libemg/#)
 - [LibEMG gesture library](https://github.com/libemg/LibEMGGestures)
+
+## Random notes
+
+from metadata.json
+0 = hand close
+1 = hand open
+2 = pinch
+3 = no motion
+4 = extension
+5 = flexion
+
+in globals
+1 = no motion
+2 = hand close
+3 = hand open
+4 = flexion
+5 = extension
+26 = pinch

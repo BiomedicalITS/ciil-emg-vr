@@ -1,5 +1,5 @@
+import os
 import numpy as np
-from torch import Tensor
 import torch
 from torch.utils.data import DataLoader
 from torch.utils.data import TensorDataset
@@ -119,10 +119,28 @@ def train_model(data_dir: str, train_reps: list, test_reps: list):
     return model
 
 
+def get_reps(path: str):
+    return list(set([int(f.split("_")[1]) for f in os.listdir(path) if "R_" in f]))
+
+
+def main(sample_data):
+    if sample_data:
+        utils.setup_streamer()
+        odh = utils.get_online_data_handler(
+            g.EMG_SAMPLING_RATE, notch_freq=g.EMG_NOTCH_FREQ, use_imu=g.USE_IMU
+        )
+        get_training_data(odh, g.LIBEMG_GESTURE_IDS, 5, 5, g.OFFLINE_DATA_DIR)
+
+    reps = get_reps(g.OFFLINE_DATA_DIR)
+    train_reps = reps[: int(0.8 * len(reps))]
+    test_reps = reps[int(0.8 * len(reps)) :]
+
+    print("Training on reps:", train_reps)
+    print("Testing on reps:", test_reps)
+    print(len(train_reps), len(test_reps))
+
+    train_model(g.OFFLINE_DATA_DIR, train_reps, test_reps)
+
+
 if __name__ == "__main__":
-    utils.setup_streamer()
-    odh = utils.get_online_data_handler(
-        g.EMG_SAMPLING_RATE, notch_freq=g.EMG_NOTCH_FREQ, use_imu=g.USE_IMU
-    )
-    get_training_data(odh, g.LIBEMG_GESTURE_IDS, 2, 3, g.OFFLINE_DATA_DIR)
-    train_model(g.OFFLINE_DATA_DIR, 0, 1)
+    main(False)

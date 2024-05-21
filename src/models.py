@@ -13,7 +13,6 @@ class EmgCNN(L.LightningModule):
         Parameters:
             - input_shape: shape of input data
             - num_classes: number of classes
-            - quantization: bit-width of weights and activations. >=32 or <0 for no quantization
         """
         super().__init__()
         self.save_hyperparameters()
@@ -101,9 +100,7 @@ class TuningEmgCNN(L.LightningModule):
     def __init__(self, model: EmgCNN, num_classes: int):
         """
         Parameters:
-            - input_shape: shape of input data
             - num_classes: number of classes
-            - quantization: bit-width of weights and activations. >=32 or <0 for no quantization
         """
         super().__init__()
 

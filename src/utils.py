@@ -13,11 +13,18 @@ import globals as g
 
 def get_most_recent_checkpoint(lightning_logs_path: str = "./lightning_logs") -> str:
     max = 0
-    for i in os.listdir(lightning_logs_path):
-        if "version" in i:
-            num = int(i.split("_")[1])
-            if num > max:
-                max = num
+    for folder in os.listdir(lightning_logs_path):
+        if "version" not in folder:
+            continue
+
+        with open(f"{lightning_logs_path}/{folder}/hparams.yaml", "r") as f:
+            text = f.readline()
+            if text.startswith("{}"):
+                continue
+
+        num = int(folder.split("_")[1])
+        if num > max:
+            max = num
     ckpt_name = os.listdir(f"{lightning_logs_path}/version_{max}/checkpoints")[0]
     model_ckpt_path = f"{lightning_logs_path}/version_{max}/checkpoints/{ckpt_name}"
 
@@ -29,6 +36,9 @@ def get_filter(
     bandpass_freqs: float | list = [20, 350],
     notch_freq: int = 50,
 ):
+    if isinstance(bandpass_freqs, float) or isinstance(bandpass_freqs, int):
+        bandpass_freqs = [bandpass_freqs]
+
     # Create some filters
     fi = Filter(sampling_frequency=sampling_rate)
     fi.install_filters({"name": "notch", "cutoff": notch_freq, "bandwidth": 3})
@@ -43,15 +53,17 @@ def get_filter(
     return fi
 
 
-def get_model():
+def get_model(finetune: bool = False, num_classes: int = 6):
     """
     Load the most recent model checkpoint and return it
     """
+    model_ckpt = get_most_recent_checkpoint()
+    print("Loading model from:", model_ckpt)
+    model = EmgCNN.load_from_checkpoint(checkpoint_path=model_ckpt)
+    if not finetune:
+        return model
 
-    model = EmgCNN.load_from_checkpoint(
-        checkpoint_path=get_most_recent_checkpoint(),
-    )
-    model = TuningEmgCNN(model, num_classes=len(g.LIBEMG_GESTURE_IDS)).to(g.ACCELERATOR)
+    model = TuningEmgCNN(model, num_classes=num_classes)
     return model
 
 
@@ -87,18 +99,34 @@ def get_online_data_handler(
 
 
 def process_data(data: np.ndarray) -> np.ndarray:
-    # standard preprocessing pipeline
+    # Assumes data is prefiltered
+
+    # rectify
     data = np.abs(data)
+    # data = tke(data)
+    data = moving_average(data, g.EMG_RUNNING_MEAN_LEN)
 
-    # finish by normalizing samples
-    orig_shape = data.shape
-    if data.ndim != 2:
-        data = data.reshape(data.shape[0], -1)
+    # normalize
+    if g.USE_MYO:
+        return data.astype(np.float32) / 128.0
 
-    normalized = normalize(data, axis=1)
-    if orig_shape != normalized.shape:
-        normalized = normalized.reshape(orig_shape)
-    return normalized.astype(np.float32)
+    return data.astype(np.float32) / (5 * 10e-3)
+
+
+def moving_average(x: np.ndarray, N: int):
+    orig_shape = x.shape
+    x = x.reshape(-1, np.prod(x.shape[1:]))
+
+    for c in range(x.shape[1]):
+        x[:, c] = np.convolve(x[:, c], np.ones(N) / N, mode="same")
+    return x.reshape(orig_shape)
+
+
+def tke(data):
+    data = np.vstack((data[0:1], data))
+    data = np.vstack((data, data[-1:]))
+    data = data[1:-1] ** 2 - data[:-2] * data[2:]
+    return data
 
 
 def visualize():
@@ -111,9 +139,8 @@ def visualize():
 
 
 if __name__ == "__main__":
-    p = setup_streamer()
-    input("Press Enter to quit")
-    p = visualize()
+    # p = setup_streamer()
+    # p = visualize()
 
     p = get_most_recent_checkpoint()
     print(p)
