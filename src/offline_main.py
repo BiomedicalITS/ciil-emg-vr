@@ -7,7 +7,7 @@ from torch.utils.data import TensorDataset
 from libemg.datasets import OneSubjectMyoDataset
 from libemg.data_handler import OfflineDataHandler
 
-from models import EmgCNN, TuningEmgCNN
+from models import EmgCNN
 
 import utils
 import globals as g
