@@ -112,7 +112,7 @@ class MoveGroupTutorial(object):
     current_pose = group.get_current_pose().pose
     print("Current pose: ", current_pose)
 
-    # Set pose goal:
+    # Plan motion for desired pose of the end effector
     pose_goal = geometry_msgs.msg.Pose()
     pose_goal.orientation.w = 1.0
     pose_goal.position.x = 0.4
