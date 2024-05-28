@@ -7,8 +7,6 @@ from torch.utils.data import TensorDataset
 
 import lightning as L
 
-# from lightning.pytorch.callbacks import EarlyStopping
-
 from libemg.screen_guided_training import ScreenGuidedTraining
 from libemg.utils import make_regex
 from libemg.data_handler import OfflineDataHandler, OnlineDataHandler
@@ -47,10 +45,6 @@ def get_training_data(
 
 
 def train_model(model: nn.Module, data_dir: str, train_reps: list, test_reps: list):
-    """
-    TODO: validation reps?
-    """
-
     if not isinstance(train_reps, list):
         train_reps = [train_reps]
     if not isinstance(test_reps, list):
@@ -77,24 +71,18 @@ def train_model(model: nn.Module, data_dir: str, train_reps: list, test_reps: li
     train_data = odh.isolate_data("reps", train_reps)
     test_data = odh.isolate_data("reps", test_reps)
 
-    # 1-sample window and 1-sample stride
     ws, wi = 1, 1
-    train_windows, train_metadata = train_data.parse_windows(ws, wi)
-    test_windows, test_metadata = test_data.parse_windows(ws, wi)
 
+    # 1-sample window and 1-sample stride
     # go from NWC to NCW
-    train_windows = train_windows.swapaxes(1, 2)
-    test_windows = test_windows.swapaxes(1, 2)
-
     # add axis for NCHW
-    train_windows = np.expand_dims(train_windows, axis=1)
-    test_windows = np.expand_dims(test_windows, axis=1)
-
     # Process the data
-    train_windows = utils.process_data(train_windows)
-    test_windows = utils.process_data(test_windows)
-
     # Create the torch datasets
+
+    train_windows, train_metadata = train_data.parse_windows(ws, wi)
+    train_windows = train_windows.swapaxes(1, 2)
+    train_windows = np.expand_dims(train_windows, axis=1)
+    train_windows = utils.process_data(train_windows)
     train_loader = DataLoader(
         TensorDataset(
             torch.from_numpy(train_windows), torch.from_numpy(train_metadata["classes"])
@@ -102,16 +90,26 @@ def train_model(model: nn.Module, data_dir: str, train_reps: list, test_reps: li
         batch_size=32,
         shuffle=True,
     )
-    test_loader = DataLoader(
-        TensorDataset(
-            torch.from_numpy(test_windows), torch.from_numpy(test_metadata["classes"])
-        ),
-        batch_size=128,
-    )
+
+    if len(test_reps) > 0:
+        test_windows, test_metadata = test_data.parse_windows(ws, wi)
+        test_windows = test_windows.swapaxes(1, 2)
+        test_windows = np.expand_dims(test_windows, axis=1)
+        test_windows = utils.process_data(test_windows)
+        test_loader = DataLoader(
+            TensorDataset(
+                torch.from_numpy(test_windows),
+                torch.from_numpy(test_metadata["classes"]),
+            ),
+            batch_size=128,
+        )
+
     model = model.train()
     trainer = L.Trainer(max_epochs=10)
     trainer.fit(model, train_loader)
-    trainer.test(model, test_loader)
+    if len(test_reps) > 0:
+        trainer.test(model, test_loader)
+
     return model
 
 
@@ -123,17 +121,21 @@ def get_reps(path: str):
 
 
 def main(sample_data, finetune):
-    data_dir = g.TRAIN_DATA_DIR if not finetune else g.FINETUNE_DATA_DIR
+    data_dir = g.FINETUNE_DATA_DIR if finetune else g.TRAIN_DATA_DIR
     if sample_data:
         utils.setup_streamer()
         odh = utils.get_online_data_handler(
-            g.EMG_SAMPLING_RATE, notch_freq=g.EMG_NOTCH_FREQ, use_imu=g.USE_IMU
+            g.EMG_SAMPLING_RATE, notch_freq=g.EMG_NOTCH_FREQ, use_imu=True
         )
         get_training_data(odh, g.LIBEMG_GESTURE_IDS, 1 if finetune else 5, 5, data_dir)
 
     reps = get_reps(data_dir)
-    train_reps = reps[: int(0.8 * len(reps))]
-    test_reps = reps[int(0.8 * len(reps)) :]
+    if len(reps) == 1:
+        train_reps = reps
+        test_reps = []
+    else:
+        train_reps = reps[: int(0.8 * len(reps))]
+        test_reps = reps[int(0.8 * len(reps)) :]
 
     print("Training on reps:", train_reps)
     print("Testing on reps:", test_reps)
@@ -148,4 +150,4 @@ def main(sample_data, finetune):
 
 
 if __name__ == "__main__":
-    main(True, False)
+    main(sample_data=False, finetune=False)

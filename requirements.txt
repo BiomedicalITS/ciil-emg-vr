@@ -1,5 +1,6 @@
 lightning
 requests
+matplotlib
 -e "git+https://github.com/gabrielpgagne/libemg@main#egg=libemg"
 -e "git+https://github.com/SBIOML/emager-py@main#egg=emager-py"
 #-e "file:///Users/gabrielgagne/Documents/git/emager-py"

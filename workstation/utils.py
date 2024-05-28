@@ -126,10 +126,10 @@ def process_data(data: np.ndarray) -> np.ndarray:
     data = moving_average(data, g.EMG_RUNNING_MEAN_LEN)
 
     # normalize
-    if g.DEVICE:
-        return data.astype(np.float32) / 128.0
+    if g.DEVICE == "myo":
+        return (data / 128.0).astype(np.float32)
 
-    return data.astype(np.float32) / (5 * 10e-3)
+    return (data / (5 * 10e-3)).astype(np.float32)
 
 
 def moving_average(x: np.ndarray, N: int):

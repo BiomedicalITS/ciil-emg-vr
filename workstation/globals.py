@@ -1,10 +1,13 @@
-import torch
+try:
+    import torch
 
-ACCELERATOR = (
-    "cuda"
-    if torch.cuda.is_available()
-    else "mps" if torch.backends.mps.is_available() else "cpu"
-)
+    ACCELERATOR = (
+        "cuda"
+        if torch.cuda.is_available()
+        else "mps" if torch.backends.mps.is_available() else "cpu"
+    )
+except ImportError:
+    pass
 
 DEVICE = "myo"  # "emager", "myo" or "bioarmband"
 
