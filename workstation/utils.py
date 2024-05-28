@@ -81,30 +81,29 @@ def map_class_to_gestures(data_dir: str):
     return class_to_name
 
 
-def setup_streamer():
+def setup_streamer(device: str = "myo", notch_freq: int = 50):
     # Setup the streamers
-    if g.DEVICE == "myo":
+    if device == "myo":
         # Create Myo Streamer
         return myo_streamer(filtered=False, imu=True)
-    elif g.DEVICE == "bioarmband":
+    elif device == "bioarmband":
         return sifibridge_streamer(
             version="1_1",
             emg=True,
             imu=True,
             notch_on=True,
-            notch_freq=g.EMG_NOTCH_FREQ,
+            notch_freq=notch_freq,
         )
-    elif g.DEVICE == "emager":
+    elif device == "emager":
         return emager_streamer()
     else:
-        raise ValueError(f"Unknown device: {g.DEVICE}")
+        raise ValueError(f"Unknown device: {device}")
 
 
 def get_online_data_handler(
     sampling_rate: float,
     bandpass_freqs: float | list = [20, 350],
     notch_freq: int = 50,
-    use_imu: bool = False,
     **kwargs,
 ) -> OnlineDataHandler:
     if not isinstance(bandpass_freqs, list) or isinstance(bandpass_freqs, tuple):
@@ -117,7 +116,7 @@ def get_online_data_handler(
     return odh
 
 
-def process_data(data: np.ndarray) -> np.ndarray:
+def process_data(data: np.ndarray, device: str = "myo") -> np.ndarray:
     # Assumes data is prefiltered
 
     # rectify
@@ -126,7 +125,7 @@ def process_data(data: np.ndarray) -> np.ndarray:
     data = moving_average(data, g.EMG_RUNNING_MEAN_LEN)
 
     # normalize
-    if g.DEVICE == "myo":
+    if device == "myo":
         return (data / 128.0).astype(np.float32)
 
     return (data / (5 * 10e-3)).astype(np.float32)
@@ -148,17 +147,17 @@ def tke(data):
     return data
 
 
-def visualize():
-    p = setup_streamer()
-    odh = get_online_data_handler(
-        g.EMG_SAMPLING_RATE, notch_freq=g.EMG_NOTCH_FREQ, use_imu=True
-    )
-    odh.visualize_channels(list(range(8)), 3 * g.EMG_SAMPLING_RATE)
+def visualize(device: str, sampling_rate: int, notch_freq: int = 50):
+    """
+    Visualize the data stream in real time. Takes care of setting up the streamer.
+    """
+    p = setup_streamer(device, notch_freq)
+    odh = get_online_data_handler(sampling_rate, notch_freq=notch_freq, use_imu=False)
+    odh.visualize_channels(list(range(8)), 3 * sampling_rate)
     return p
 
 
 if __name__ == "__main__":
-    p = setup_streamer()
     p = visualize()
 
     # p = get_most_recent_checkpoint()
