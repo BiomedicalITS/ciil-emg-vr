@@ -34,7 +34,14 @@ def get_attitude_from_quats(qw, qx, qy, qz):
 
 
 class OnlineDataWrapper:
-    def __init__(self, emg_shape: tuple, emg_buffer_size: int, udp_port: int = 5111):
+    def __init__(
+        self,
+        device: str,
+        emg_shape: tuple,
+        emg_buffer_size: int,
+        num_gestures: int,
+        udp_port: int = 5111,
+    ):
         """
         Main object to do the NFC-EMG stuff.
 
@@ -47,7 +54,7 @@ class OnlineDataWrapper:
         self.odh = OnlineDataHandler(
             emg_arr=True, imu_arr=True, max_buffer=emg_buffer_size
         )
-        self.model = utils.get_model(False, len(g.LIBEMG_GESTURE_IDS))
+        self.model = utils.get_model(True, num_gestures)
         self.model.eval()
         self.optimizer = self.model.configure_optimizers()
 
@@ -55,7 +62,7 @@ class OnlineDataWrapper:
         self.emg_shape = emg_shape
         self.last_emg_sample = np.zeros((1, *self.emg_shape))
 
-        utils.setup_streamer()
+        utils.setup_streamer(device)
         self.start_listening()
 
     def start_listening(self):
