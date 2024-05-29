@@ -1,1 +1,0 @@
-docker build -t ros2/ur5e .

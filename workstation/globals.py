@@ -14,7 +14,10 @@ DEVICE = "myo"  # "emager", "myo" or "bioarmband"
 TRAIN_DATA_DIR = f"data/{DEVICE}/train/"
 FINETUNE_DATA_DIR = f"data/{DEVICE}/finetune/"
 LIBEMG_GESTURE_IDS = [1, 2, 3, 4, 5]  # pinch = 26 ?
-UDP_PORT = 5111
+
+PEUDO_LABELS_PORT = 5111
+ROBOT_PORT = 5112
+ROBOT_IP = "192.168.50.39"
 
 EMG_DATA_SHAPE = (4, 16) if DEVICE == "emager" else (1, 8)
 EMG_SAMPLING_RATE = (

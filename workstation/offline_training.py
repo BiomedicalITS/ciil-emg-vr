@@ -123,9 +123,9 @@ def get_reps(path: str):
 def main(sample_data, finetune):
     data_dir = g.FINETUNE_DATA_DIR if finetune else g.TRAIN_DATA_DIR
     if sample_data:
-        utils.setup_streamer()
+        utils.setup_streamer(g.DEVICE, g.EMG_NOTCH_FREQ)
         odh = utils.get_online_data_handler(
-            g.EMG_SAMPLING_RATE, notch_freq=g.EMG_NOTCH_FREQ, use_imu=True
+            g.EMG_SAMPLING_RATE, notch_freq=g.EMG_NOTCH_FREQ
         )
         get_training_data(odh, g.LIBEMG_GESTURE_IDS, 1 if finetune else 5, 5, data_dir)
 
@@ -150,4 +150,4 @@ def main(sample_data, finetune):
 
 
 if __name__ == "__main__":
-    main(sample_data=False, finetune=False)
+    main(sample_data=True, finetune=True)

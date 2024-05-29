@@ -1,1 +1,0 @@
-docker run --rm -it -p 5900:5900 -p 6080:6080 --name ros2/ursim universalrobots/ursim_e-series

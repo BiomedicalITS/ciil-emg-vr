@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from collections import deque
 import socket
+import json
 
 from emager_py import majority_vote
 
@@ -40,16 +41,21 @@ class OnlineDataWrapper:
         emg_shape: tuple,
         emg_buffer_size: int,
         num_gestures: int,
-        udp_port: int = 5111,
+        robot_ip: str,
+        pseudo_labels_port: int = 5111,
+        robot_port: int = 5112,
     ):
         """
         Main object to do the NFC-EMG stuff.
 
         Starts listening to the data stream.
         """
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.socket.bind(("127.0.0.1", udp_port))
-        self.socket.setblocking(False)
+        self.pl_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.pl_socket.bind(("127.0.0.1", pseudo_labels_port))
+        self.pl_socket.setblocking(False)
+
+        self.robot_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.robot_sock = (robot_ip, robot_port)
 
         self.odh = OnlineDataHandler(
             emg_arr=True, imu_arr=True, max_buffer=emg_buffer_size
@@ -80,12 +86,26 @@ class OnlineDataWrapper:
         while True:
             pitch, yaw, roll = self.run_imu()
             emg_data = self.run_emg()
-            labels = self.run_socket()
+            # labels = self.run_socket()
             preds = self.run_model(emg_data)
             if preds.size > 0:
                 voter.extend(preds)
                 maj_vote = voter.vote().item(0)
-                log.info(f"{gesture_dict[maj_vote]} ({maj_vote})")
+
+                gesture_str = gesture_dict[maj_vote]
+                cmd = None
+                if gesture_str == "Hand_Open":
+                    cmd = {
+                        "action": "open",
+                    }
+                elif gesture_str == "Hand_Close":
+                    cmd = {
+                        "action": "close",
+                    }
+                if cmd is not None:
+                    self.robot_socket.sendto(json.dumps(cmd).encode(), self.robot_sock)
+
+                log.info(f"{gesture_str} ({maj_vote})")
 
     def run_imu(self):
         """
@@ -138,7 +158,7 @@ class OnlineDataWrapper:
         Run the socket and return the data.
         """
         try:
-            sockdata = np.frombuffer(self.socket.recv(2048), dtype=np.uint8)
+            sockdata = np.frombuffer(self.pl_socket.recv(2048), dtype=np.uint8)
             return sockdata
         except Exception:
             return None
@@ -274,7 +294,15 @@ if __name__ == "__main__":
 
     set_logging()
 
-    odw = OnlineDataWrapper(g.EMG_DATA_SHAPE, g.EMG_SAMPLING_RATE)
+    odw = OnlineDataWrapper(
+        g.DEVICE,
+        g.EMG_DATA_SHAPE,
+        g.EMG_SAMPLING_RATE,
+        len(g.LIBEMG_GESTURE_IDS),
+        g.ROBOT_IP,
+        g.PEUDO_LABELS_PORT,
+        g.ROBOT_PORT,
+    )
     odw.run()
     while True:
         print("*" * 80)

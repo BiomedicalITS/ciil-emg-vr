@@ -1,1 +1,0 @@
-docker run --network=host -p 50001-50004:50001-50004 --rm -d --name ur5e ros2/ur5e 
