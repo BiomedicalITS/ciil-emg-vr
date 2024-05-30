@@ -19,17 +19,8 @@ import globals as g
 
 def get_attitude_from_quats(qw, qx, qy, qz):
     yaw = np.arctan2(2.0 * (qy * qz + qw * qx), qw * qw - qx * qx - qy * qy + qz * qz)
-
     aasin = qx * qz - qw * qy
-    # if aasin > 0.97:
-    #    pitch = np.pi / 2.0
-    # elif aasin < -0.97:
-    #    pitch = -np.pi / 2.0
-    if False:
-        pass
-    else:
-        pitch = np.arcsin(-2.0 * aasin)
-
+    pitch = np.arcsin(-2.0 * aasin)
     roll = np.arctan2(2.0 * (qx * qy + qw * qz), qw * qw + qx * qx - qy * qy - qz * qz)
     return pitch, yaw, roll
 
@@ -40,9 +31,11 @@ class OnlineDataWrapper:
         device: str,
         emg_shape: tuple,
         emg_buffer_size: int,
+        emg_fs: int,
+        emg_maj_vote_ms: int,
         num_gestures: int,
-        robot_ip: str,
         pseudo_labels_port: int = 5111,
+        robot_ip: str = "nvidia",
         robot_port: int = 5112,
     ):
         """
@@ -50,6 +43,8 @@ class OnlineDataWrapper:
 
         Starts listening to the data stream.
         """
+        self.device = device
+
         self.pl_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.pl_socket.bind(("127.0.0.1", pseudo_labels_port))
         self.pl_socket.setblocking(False)
@@ -68,6 +63,9 @@ class OnlineDataWrapper:
         self.emg_shape = emg_shape
         self.last_emg_sample = np.zeros((1, *self.emg_shape))
 
+        self.voter = majority_vote.MajorityVote(emg_maj_vote_ms * emg_fs // 1000)
+        self.gesture_dict = utils.map_class_to_gestures(g.TRAIN_DATA_DIR)
+
         utils.setup_streamer(device)
         self.start_listening()
 
@@ -78,51 +76,103 @@ class OnlineDataWrapper:
         self.odh.stop_listening()
 
     def run(self):
-        voter = majority_vote.MajorityVote(
-            g.EMG_MAJ_VOTE_MS * g.EMG_SAMPLING_RATE // 1000
-        )
-        gesture_dict = utils.map_class_to_gestures(g.TRAIN_DATA_DIR)
-
+        # TODO intensity of the movement etc
+        last_arm_movement = {"arm": "none"}
+        last_gripper_cmd = {"gripper": "none"}
         while True:
-            pitch, yaw, roll = self.run_imu()
-            emg_data = self.run_emg()
-            # labels = self.run_socket()
-            preds = self.run_model(emg_data)
-            if preds.size > 0:
-                voter.extend(preds)
-                maj_vote = voter.vote().item(0)
+            quats = self.get_imu_data("quat")
+            pyr = self.get_pyr_from_imu(quats)
+            arm_movement = self.get_arm_movement(*pyr)
 
-                gesture_str = gesture_dict[maj_vote]
-                cmd = None
-                if gesture_str == "Hand_Open":
-                    cmd = {
-                        "action": "open",
-                    }
-                elif gesture_str == "Hand_Close":
-                    cmd = {
-                        "action": "close",
-                    }
-                if cmd is not None:
-                    self.robot_socket.sendto(json.dumps(cmd).encode(), self.robot_sock)
+            emg_data = self.get_emg()
+            preds = self.predict_from_emg(emg_data)
+            gripper_cmd = self.get_gripper_command(preds)
 
-                log.info(f"{gesture_str} ({maj_vote})")
+            # labels = self.get_live_labels()
+            if arm_movement["arm"] != "none" and arm_movement != last_arm_movement:
+                log.info(f"Arm movement: {arm_movement}")
+                last_arm_movement = arm_movement
+                self.send_robot_command(arm_movement)
+            if gripper_cmd["gripper"] != "none" and gripper_cmd != last_gripper_cmd:
+                log.info(f"Gripper command: {gripper_cmd}")
+                last_gripper_cmd = gripper_cmd
+                self.send_robot_command(gripper_cmd)
 
-    def run_imu(self):
+    def get_imu_data(self, channel: str = "quat"):
         """
         Get IMU quaternions, return the attitude readings. Clear the odh buffer.
+
+        Params:
+            - channel: str, "quat", "acc" or "both"
         """
+        start = 4 if channel == "acc" else 0
+        end = 4 if channel == "quat" else 7
         odata = self.odh.get_imu_data()
         if len(odata) == 0:
-            return None, None, None
+            return np.zeros((0, end - start))
         # log.info(f"IMU data len: {len(odata)}")
-        quats: np.ndarray = odata[:, :4] / np.linalg.norm(
-            odata[:, :4], axis=1, keepdims=True
-        )
-        pitch, yaw, roll = get_attitude_from_quats(*quats.T)
+        vals: np.ndarray = odata[:, start:end]
         self.odh.raw_data.reset_imu()
-        return pitch, yaw, roll
+        return vals
 
-    def run_emg(self):
+    def get_pyr_from_imu(self, quats: np.ndarray):
+        """
+        Get pitch-yaw-roll from quaternions.
+
+        If multiple quaternions are given, the mean is taken.
+
+        Returns a triplet of pitch, yaw, roll in rads
+        """
+        if len(quats) == 0:
+            return None, None, None
+        elif len(quats) > 1:
+            quats = np.mean(quats, axis=0)
+
+        quats = quats / np.linalg.norm(quats)
+        pitch, yaw, roll = get_attitude_from_quats(*quats.T)
+        log.info(
+            f"Pitch: {pitch.item():.3f}, Yaw: {yaw.item():.3f}, Roll: {roll.item():.3f}"
+        )
+        return pitch.item(), yaw.item(), roll.item()
+
+    def get_arm_movement(self, pitch, yaw, roll, dead_zone=0.5):
+        """
+        Get the movement from the pitch-yaw-roll values.
+
+        Pitch = [-pi/2, pi/2]
+        Yaw = [-pi, pi]
+        Roll = [-pi, pi]
+        """
+        ret = {"arm": "none"}
+        if pitch is None:
+            return ret
+        pitch, yaw, roll = 2 * pitch / np.pi, yaw / np.pi, roll / np.pi  # [-1, 1]
+        triplet = np.array([pitch, yaw, roll])
+        biggest = np.argmax(np.abs(triplet))
+
+        if np.abs(triplet[biggest]) < dead_zone:
+            return ret
+        elif biggest == 0:
+            # pitch
+            if triplet[biggest] > 0:
+                ret["arm"] = "backward"
+            else:
+                ret["arm"] = "forward"
+        elif biggest == 1:
+            # yaw
+            if triplet[biggest] > 0:
+                ret["arm"] = "right"
+            else:
+                ret["arm"] = "left"
+        else:
+            # roll
+            if triplet[biggest] > 0:
+                ret["arm"] = "up"
+            else:
+                ret["arm"] = "down"
+        return ret
+
+    def get_emg(self, process=True):
         odata = self.odh.get_data()
         if len(odata) < self.emg_buffer_size:
             return np.zeros((0, *self.emg_shape), np.float32)
@@ -138,14 +188,17 @@ class OnlineDataWrapper:
             return np.zeros((0, *self.emg_shape), np.float32)
         self.last_emg_sample = odata[-1]
         data = odata.reshape(-1, *self.emg_shape)
-        pdata = utils.process_data(data)
-        return pdata[pos + 1 :]
+        if process:
+            data = utils.process_data(data, self.device)
+        return data[pos + 1 :]
 
-    def run_model(self, data: np.ndarray) -> np.ndarray:
+    def predict_from_emg(self, data: np.ndarray):
         """
         Run the model on the given data.
+
+        TODO show confidencev%
         """
-        if data.size == 0:
+        if len(data) == 0:
             return np.zeros((0,), np.uint8)
         data = data.reshape(-1, 1, *self.emg_shape)
         samples = torch.from_numpy(data).to(g.ACCELERATOR)
@@ -153,7 +206,33 @@ class OnlineDataWrapper:
         pred = pred.cpu().detach().numpy()
         return np.argmax(pred, axis=1)
 
-    def run_socket(self):
+    def get_gripper_command(self, preds: np.ndarray):
+        """
+        Get the gripper command from the predictions.
+
+        Params:
+            - preds: np.ndarray, shape (N,). The predictions from the model.
+        """
+        cmd = {"gripper": "none"}
+        if len(preds) == 0:
+            return cmd
+        self.voter.extend(preds)
+        maj_vote = self.voter.vote().item(0)
+        gesture_str = self.gesture_dict[maj_vote]
+        if gesture_str == "Hand_Open":
+            cmd["gripper"] = "open"
+        elif gesture_str == "Hand_Close":
+            cmd["gripper"] = "close"
+        elif gesture_str == "Wrist_Flexion":
+            pass
+        elif gesture_str == "Wrist_Extension":
+            pass
+
+        log.info(f"{gesture_str} ({maj_vote})")
+
+        return cmd
+
+    def get_live_labels(self):
         """
         Run the socket and return the data.
         """
@@ -162,6 +241,12 @@ class OnlineDataWrapper:
             return sockdata
         except Exception:
             return None
+
+    def send_robot_command(self, cmd: dict):
+        """
+        Send the robot command to the robot.
+        """
+        self.robot_socket.sendto(json.dumps(cmd).encode(), self.robot_sock)
 
     def finetune_model(
         self,
@@ -215,7 +300,7 @@ class OnlineDataWrapper:
             ),
         )
         while True:
-            pitch, yaw, roll = self.run_imu()
+            pitch, yaw, roll = self.get_imu_data()
             if pitch is None:
                 continue
             pit, ya, ro = pitch[-1], yaw[-1], roll[-1]
@@ -241,7 +326,7 @@ class OnlineDataWrapper:
         self.odh.visualize()
 
 
-def main_loop(odh: OnlineDataHandler):
+def plot_quaternions_live(odh: OnlineDataHandler):
     # TODO find a better way to watch for new data
     # quat, acc, gyro = 10 dimensions
     global sample_buf, last_shape
@@ -283,33 +368,28 @@ def main_loop(odh: OnlineDataHandler):
         plt.grid(True, "both", "both")
 
     plt.figure()
-    ani = FuncAnimation(plt.gcf(), update, interval=30)
+    FuncAnimation(plt.gcf(), update, interval=30)
     plt.tight_layout()
     plt.show()
 
 
 if __name__ == "__main__":
-    import time
     from emager_py.utils import set_logging
 
+    """
+    Myo: USB port towards the user: Pitch inverted, Yaw and roll swapped
+    """
     set_logging()
 
     odw = OnlineDataWrapper(
         g.DEVICE,
         g.EMG_DATA_SHAPE,
         g.EMG_SAMPLING_RATE,
+        g.EMG_SAMPLING_RATE,
+        g.EMG_MAJ_VOTE_MS,
         len(g.LIBEMG_GESTURE_IDS),
-        g.ROBOT_IP,
         g.PEUDO_LABELS_PORT,
+        g.ROBOT_IP,
         g.ROBOT_PORT,
     )
     odw.run()
-    while True:
-        print("*" * 80)
-        t0 = time.perf_counter()
-        data = odw.run_emg()
-        print("New data shape", data.shape)
-        preds = odw.run_model(data)
-        print(f"Time taken {time.perf_counter() - t0:.4f} s")
-        print(preds)
-        # odw.visualize_emg()

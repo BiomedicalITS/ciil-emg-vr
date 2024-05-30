@@ -81,12 +81,12 @@ def map_class_to_gestures(data_dir: str):
     return class_to_name
 
 
-def setup_streamer(device: str = "myo", notch_freq: int = 50):
+def setup_streamer(device: str, notch_freq: int = 50):
     # Setup the streamers
     if device == "myo":
         # Create Myo Streamer
         return myo_streamer(filtered=False, imu=True)
-    elif device == "bioarmband":
+    elif device == "bio":
         return sifibridge_streamer(
             version="1_1",
             emg=True,
@@ -116,7 +116,7 @@ def get_online_data_handler(
     return odh
 
 
-def process_data(data: np.ndarray, device: str = "myo") -> np.ndarray:
+def process_data(data: np.ndarray, device: str):
     # Assumes data is prefiltered
 
     # rectify
@@ -125,10 +125,7 @@ def process_data(data: np.ndarray, device: str = "myo") -> np.ndarray:
     data = moving_average(data, g.EMG_RUNNING_MEAN_LEN)
 
     # normalize
-    if device == "myo":
-        return (data / 128.0).astype(np.float32)
-
-    return (data / (5 * 10e-3)).astype(np.float32)
+    return (data / g.EMG_SCALING_FACTOR).astype(np.float32)
 
 
 def moving_average(x: np.ndarray, N: int):

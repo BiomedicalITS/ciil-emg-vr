@@ -1,95 +1,155 @@
+import os
 import numpy as np
-from torch import Tensor
-import lightning as L
+import torch
+from torch import nn
 from torch.utils.data import DataLoader
 from torch.utils.data import TensorDataset
 
-from libemg.datasets import OneSubjectMyoDataset
-from libemg.data_handler import OfflineDataHandler
+import lightning as L
+
+from libemg.screen_guided_training import ScreenGuidedTraining
+from libemg.utils import make_regex
+from libemg.data_handler import OfflineDataHandler, OnlineDataHandler
 
 from models import EmgCNN
-
 import utils
 import globals as g
 
-if __name__ == "__main__":
-    dataset = OneSubjectMyoDataset(save_dir="data/", redownload=False)
-    odh = dataset.prepare_data(format=OfflineDataHandler)
 
-    # split the dataset into a train, validation, and test set
-    # this dataset has a "sets" metadata flag, so lets split
-    # train/test using that.
-    train_data = odh.isolate_data("sets", [0, 1, 2, 3])
-    test_data = odh.isolate_data("sets", [4])
-    ft_test_data = odh.isolate_data("sets", [5])
+def get_training_data(
+    online_data_handler: OnlineDataHandler,
+    gestures,
+    num_reps,
+    rep_time,
+    output_dir,
+    **kwargs
+):
+    """
+    Params:
+        - gestures: list of gesture ids
+        - num_reps: number of repetitions per gesture
+        - rep_time: time in seconds for each repetition
+        - kwargs: additional parameters for the training UI, passed as key-values to `ScreenGuidedTraining.launch_training`
+    """
+    gestures_dir = "data/gestures/"
+    train_ui = ScreenGuidedTraining()
+    train_ui.download_gestures(gestures, gestures_dir)
+    train_ui.launch_training(
+        online_data_handler,
+        num_reps,
+        rep_time,
+        gestures_dir,
+        output_folder=output_dir,
+        **kwargs
+    )
 
-    # lets further split up training and validation based on reps
 
-    fi = utils.get_filter(200, bandpass_freqs=[20, 350], notch_freq=60)
-    fi.filter(train_data)
-    fi.filter(test_data)
-    fi.filter(ft_test_data)
+def train_model(
+    model: nn.Module, data_dir: str, train_reps: list, test_reps: list, device: str
+):
+    if not isinstance(train_reps, list):
+        train_reps = [train_reps]
+    if not isinstance(test_reps, list):
+        test_reps = [test_reps]
 
-    # for each of these dataset partitions, lets get our windows ready
+    classes_values = [str(gid) for gid in range(len(g.LIBEMG_GESTURE_IDS))]
+    classes_regex = make_regex(
+        left_bound="_C_", right_bound="_EMG.csv", values=classes_values
+    )
+
+    reps_values = [str(rep) for rep in train_reps + test_reps]
+    reps_regex = make_regex(left_bound="R_", right_bound="_C_", values=reps_values)
+
+    dic = {
+        "reps": reps_values,
+        "reps_regex": reps_regex,
+        "classes": classes_values,
+        "classes_regex": classes_regex,
+    }
+
+    odh = OfflineDataHandler()
+    odh.get_data(folder_location=data_dir, filename_dic=dic, delimiter=",")
+
+    train_data = odh.isolate_data("reps", train_reps)
+    test_data = odh.isolate_data("reps", test_reps)
+
     ws, wi = 1, 1
-    train_windows, train_metadata = train_data.parse_windows(ws, wi)
-    test_windows, test_metadata = test_data.parse_windows(ws, wi)
-    ft_test_windows, ft_test_metadata = ft_test_data.parse_windows(ws, wi)
 
+    # 1-sample window and 1-sample stride
     # go from NWC to NCW
+    # add axis for NCHW
+    # Process the data
+    # Create the torch datasets
+
+    train_windows, train_metadata = train_data.parse_windows(ws, wi)
     train_windows = train_windows.swapaxes(1, 2)
-    test_windows = test_windows.swapaxes(1, 2)
-    ft_test_windows = ft_test_windows.swapaxes(1, 2)
-
-    # fix axis for NCHW
     train_windows = np.expand_dims(train_windows, axis=1)
-    test_windows = np.expand_dims(test_windows, axis=1)
-    ft_test_windows = np.expand_dims(ft_test_windows, axis=1)
-
-    train_windows = utils.process_data(train_windows)
-    test_windows = utils.process_data(test_windows)
-    ft_test_windows = utils.process_data(ft_test_windows)
-
-    # Create the torch dataloaders both for initial train+test and subsequent fine tuning
+    train_windows = utils.process_data(train_windows, device)
     train_loader = DataLoader(
-        TensorDataset(Tensor(train_windows), Tensor(train_metadata["classes"])),
+        TensorDataset(
+            torch.from_numpy(train_windows), torch.from_numpy(train_metadata["classes"])
+        ),
         batch_size=32,
         shuffle=True,
     )
-    test_loader = DataLoader(
-        TensorDataset(Tensor(test_windows), Tensor(test_metadata["classes"])),
-        batch_size=256,
-    )
 
-    ft_train_loader = DataLoader(
-        TensorDataset(Tensor(test_windows), Tensor(test_metadata["classes"])),
-        batch_size=32,
-        shuffle=True,
-    )
-    ft_test_loader = DataLoader(
-        TensorDataset(Tensor(ft_test_windows), Tensor(ft_test_metadata["classes"])),
-        batch_size=256,
-    )
+    if len(test_reps) > 0:
+        test_windows, test_metadata = test_data.parse_windows(ws, wi)
+        test_windows = test_windows.swapaxes(1, 2)
+        test_windows = np.expand_dims(test_windows, axis=1)
+        test_windows = utils.process_data(test_windows)
+        test_loader = DataLoader(
+            TensorDataset(
+                torch.from_numpy(test_windows),
+                torch.from_numpy(test_metadata["classes"]),
+            ),
+            batch_size=128,
+        )
 
-    num_classes = len(set(train_metadata["classes"]))
-
-    trainer = L.Trainer(max_epochs=5)
-    model = EmgCNN(input_shape=g.EMG_DATA_SHAPE, num_classes=num_classes)
-
+    model = model.train()
+    trainer = L.Trainer(max_epochs=10)
     trainer.fit(model, train_loader)
+    if len(test_reps) > 0:
+        trainer.test(model, test_loader)
 
-    print("*" * 60)
-    print("Testing original model on test set")
-    print("*" * 60)
+    return model
 
-    print(trainer.test(model, test_loader))
-    print(trainer.test(model, ft_test_loader))
 
-    trainer = L.Trainer(max_epochs=5)
-    model = utils.get_model(finetune=True, num_classes=num_classes)
-    trainer.fit(model, ft_train_loader)
+def get_reps(path: str):
+    """
+    Get all repetitions from a directory R_*
+    """
+    return list(set([int(f.split("_")[1]) for f in os.listdir(path) if "R_" in f]))
 
-    print("*" * 60)
-    print("Testing fine tuning model")
-    print("*" * 60)
-    print(trainer.test(model, ft_test_loader))
+
+def main(sample_data, finetune):
+    data_dir = g.FINETUNE_DATA_DIR if finetune else g.TRAIN_DATA_DIR
+    if sample_data:
+        utils.setup_streamer(g.DEVICE, g.EMG_NOTCH_FREQ)
+        odh = utils.get_online_data_handler(
+            g.EMG_SAMPLING_RATE, notch_freq=g.EMG_NOTCH_FREQ
+        )
+        get_training_data(odh, g.LIBEMG_GESTURE_IDS, 1 if finetune else 5, 5, data_dir)
+
+    reps = get_reps(data_dir)
+    if len(reps) == 1:
+        train_reps = reps
+        test_reps = []
+    else:
+        train_reps = reps[: int(0.8 * len(reps))]
+        test_reps = reps[int(0.8 * len(reps)) :]
+
+    print("Training on reps:", train_reps)
+    print("Testing on reps:", test_reps)
+    print(len(train_reps), len(test_reps))
+
+    model = (
+        EmgCNN(g.EMG_DATA_SHAPE, len(g.LIBEMG_GESTURE_IDS))
+        if not finetune
+        else utils.get_model(True, num_classes=len(g.LIBEMG_GESTURE_IDS))
+    )
+    train_model(model, data_dir, train_reps, test_reps, g.DEVICE)
+
+
+if __name__ == "__main__":
+    main(sample_data=True, finetune=True)
