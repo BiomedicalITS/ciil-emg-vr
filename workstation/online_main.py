@@ -75,6 +75,11 @@ class OnlineDataWrapper:
 
         self.start_listening()
 
+        if self.device == "bio":
+            log.warning(
+                "Move around the BioArmband for its calibration to be effective. It could take a minute or so."
+            )
+
         # Everything else is handled by EMG
         self.arm_movement_list = [
             "neutral",
@@ -473,7 +478,7 @@ if __name__ == "__main__":
         g.PEUDO_LABELS_PORT,
         g.ROBOT_IP,
         g.ROBOT_PORT,
-        False,
+        # False,
     )
     odw.run()
     while True:
