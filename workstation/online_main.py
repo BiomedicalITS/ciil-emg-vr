@@ -5,8 +5,11 @@ from matplotlib.animation import FuncAnimation
 from collections import deque
 import socket
 import json
+from tqdm import tqdm
+import time
 
 from emager_py import majority_vote
+from emager_py.data_processing import cosine_similarity
 
 import numpy as np
 import torch
@@ -37,13 +40,16 @@ class OnlineDataWrapper:
         pseudo_labels_port: int = 5111,
         robot_ip: str = "nvidia",
         robot_port: int = 5112,
+        calibrate_imu: bool = True,
     ):
         """
         Main object to do the NFC-EMG stuff.
 
         Starts listening to the data stream.
         """
+
         self.device = device
+        utils.setup_streamer(self.device)
 
         self.pl_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.pl_socket.bind(("127.0.0.1", pseudo_labels_port))
@@ -66,14 +72,83 @@ class OnlineDataWrapper:
         self.voter = majority_vote.MajorityVote(emg_maj_vote_ms * emg_fs // 1000)
         self.gesture_dict = utils.map_class_to_gestures(g.TRAIN_DATA_DIR)
 
-        utils.setup_streamer(device)
         self.start_listening()
+
+        # Everything else is handled by EMG
+        self.arm_movement_list = [
+            "neutral",
+            "left",
+            "right",
+            "up",
+            "down",
+        ]
+        self.arm_movement_deadzones = [0 for _ in self.arm_movement_list]
+        self.arm_calib_data = np.zeros((len(self.arm_movement_deadzones), 3))
+        if not calibrate_imu:
+            try:
+                self.load_calibration_data()
+            except FileNotFoundError:
+                calibrate_imu = True
+
+        if calibrate_imu:
+            self.calibrate_imu()
+            self.save_calibration_data()
 
     def start_listening(self):
         self.odh.start_listening()
 
     def stop_listening(self):
         self.odh.stop_listening()
+
+    def calibrate_imu(self, n_samples=100):
+        """
+        Ask to move the arm in 3d space. For each "axis" covered, take the mean quaternion.
+
+        Thus, for each arm movement we obtain a triplet of pitch, yaw, roll. Save it.
+
+        Then cosine similarity to find the most approprite axis.
+        """
+        for i, v in enumerate(self.arm_movement_list):
+            input(
+                f"({i+1}/{len(self.arm_movement_list)}) Move the arm to the {v.upper()} position and press Enter."
+            )
+            self.odh.raw_data.reset_imu()
+            tmp_data = [[], [], []]
+            fetched_samples = 0
+            with tqdm(total=n_samples) as pbar:
+                while fetched_samples < n_samples:
+                    quats = self.get_imu_data("quat")
+                    fetched_samples += len(quats)
+                    if len(quats) == 0:
+                        time.sleep(0.1)
+                        continue
+                    pitch, yaw, roll = self.get_pyr_from_imu(quats)
+                    tmp_data[0].append(pitch)
+                    tmp_data[1].append(yaw)
+                    tmp_data[2].append(roll)
+                    pbar.update(len(quats))
+            self.arm_calib_data[i] = np.array([np.mean(angle) for angle in tmp_data])
+        for i in range(1, len(self.arm_movement_list)):
+            # Recenter around the neutral position
+            self.arm_calib_data[i] = self.arm_calib_data[i] - self.arm_calib_data[0]
+            self.arm_movement_deadzones[i] = (
+                np.linalg.norm(self.arm_calib_data[i]) * 0.75
+            )
+        log.info(f"Deadzones: {self.arm_movement_deadzones}")
+
+    def save_calibration_data(self):
+        np.savez(
+            f"data/{self.device}/calib_data.npz",
+            arm_calib_data=self.arm_calib_data,
+            arm_movement_deadzones=np.array(self.arm_movement_deadzones),
+        )
+
+    def load_calibration_data(self):
+        data = np.load(f"data/{self.device}/calib_data.npz")
+        self.arm_calib_data = data["arm_calib_data"]
+        self.arm_movement_deadzones = list(data["arm_movement_deadzones"])
+        log.info(f"Loaded calibration data:\n {self.arm_calib_data}")
+        log.info(f"Loaded calibration deadzones: {self.arm_movement_deadzones}")
 
     def run(self):
         # TODO intensity of the movement etc
@@ -105,13 +180,22 @@ class OnlineDataWrapper:
         Params:
             - channel: str, "quat", "acc" or "both"
         """
-        start = 4 if channel == "acc" else 0
-        end = 4 if channel == "quat" else 7
-        odata = self.odh.get_imu_data()
+
+        start, end = 0, 4
+        if channel == "acc":
+            start, end = 4, 7
+        elif channel == "both":
+            start, end = 0, 7
+
+        odata = self.odh.get_imu_data()  # (n_samples, n_ch)
         if len(odata) == 0:
             return np.zeros((0, end - start))
-        # log.info(f"IMU data len: {len(odata)}")
-        vals: np.ndarray = odata[:, start:end]
+        if self.device == "bio":
+            # myo is (quat, acc, gyro)
+            # bio is (acc, quat)
+            odata = np.roll(odata, 4, axis=1)
+        # log.info(f"IMU data shape: {odata.shape}")
+        vals = odata[:, start:end]
         self.odh.raw_data.reset_imu()
         return vals
 
@@ -125,52 +209,37 @@ class OnlineDataWrapper:
         """
         if len(quats) == 0:
             return None, None, None
-        elif len(quats) > 1:
-            quats = np.mean(quats, axis=0)
 
-        quats = quats / np.linalg.norm(quats)
-        pitch, yaw, roll = get_attitude_from_quats(*quats.T)
+        quats = quats / np.linalg.norm(quats, axis=1, keepdims=True)  # norm per row
+        pitch, yaw, roll = get_attitude_from_quats(*quats.T)  # (n, 4) to (4, n)
+        pitch, yaw, roll = np.mean(pitch), np.mean(yaw), np.mean(roll)
+
         log.info(
             f"Pitch: {pitch.item():.3f}, Yaw: {yaw.item():.3f}, Roll: {roll.item():.3f}"
         )
-        return pitch.item(), yaw.item(), roll.item()
+        return pitch, yaw, roll
 
-    def get_arm_movement(self, pitch, yaw, roll, dead_zone=0.5):
+    def get_arm_movement(self, pitch: float, yaw: float, roll: float):
         """
-        Get the movement from the pitch-yaw-roll values.
+        TODO: maybe consider the degree of similarity instead of just the closest
+        Get the movement from pitch-yaw-roll values.
 
         Pitch = [-pi/2, pi/2]
         Yaw = [-pi, pi]
         Roll = [-pi, pi]
         """
-        ret = {"arm": "none"}
-        if pitch is None:
-            return ret
-        pitch, yaw, roll = 2 * pitch / np.pi, yaw / np.pi, roll / np.pi  # [-1, 1]
-        triplet = np.array([pitch, yaw, roll])
-        biggest = np.argmax(np.abs(triplet))
-
-        if np.abs(triplet[biggest]) < dead_zone:
-            return ret
-        elif biggest == 0:
-            # pitch
-            if triplet[biggest] > 0:
-                ret["arm"] = "backward"
-            else:
-                ret["arm"] = "forward"
-        elif biggest == 1:
-            # yaw
-            if triplet[biggest] > 0:
-                ret["arm"] = "right"
-            else:
-                ret["arm"] = "left"
-        else:
-            # roll
-            if triplet[biggest] > 0:
-                ret["arm"] = "up"
-            else:
-                ret["arm"] = "down"
-        return ret
+        triplet = np.array([pitch, yaw, roll]).reshape((-1, 3))  # shape (n, 3)
+        # re-center it around the neutral position
+        ctriplet = triplet - self.arm_calib_data[0]
+        id = cosine_similarity(ctriplet, self.arm_calib_data, False)
+        log.info(f"Similarity matrix:\n {id}")
+        id = np.argmax(id, axis=1).item(0)
+        triplet_norm = np.linalg.norm(ctriplet, axis=1)
+        print("Triplet norm:", triplet_norm)
+        if triplet_norm < self.arm_movement_deadzones[id]:
+            # Inside of dead zone so assume neutral
+            return self.arm_movement_list[0]
+        return self.arm_movement_list[id]
 
     def get_emg(self, process=True):
         odata = self.odh.get_data()
@@ -375,6 +444,7 @@ def plot_quaternions_live(odh: OnlineDataHandler):
 
 if __name__ == "__main__":
     from emager_py.utils import set_logging
+    import time
 
     """
     Myo: USB port towards the user: Pitch inverted, Yaw and roll swapped
@@ -391,5 +461,22 @@ if __name__ == "__main__":
         g.PEUDO_LABELS_PORT,
         g.ROBOT_IP,
         g.ROBOT_PORT,
+        True,
     )
-    odw.run()
+    # odw.run()
+    while True:
+        # data = odw.run_emg()
+        # preds = odw.run_model(data)
+        t0 = time.perf_counter()
+        data = odw.get_imu_data("quat")
+        if len(data) == 0:
+            continue
+        data = odw.get_pyr_from_imu(data)
+        mvmt = odw.get_arm_movement(*data)
+        print(mvmt)
+        print("*" * 80)
+        print(f"Time taken {time.perf_counter() - t0:.4f} s")
+        # print("New data shape", data.shape)
+        # print(preds)
+        # odw.visualize_emg()
+        time.sleep(0.1)

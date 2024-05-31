@@ -97,7 +97,7 @@ def train_model(
         test_windows, test_metadata = test_data.parse_windows(ws, wi)
         test_windows = test_windows.swapaxes(1, 2)
         test_windows = np.expand_dims(test_windows, axis=1)
-        test_windows = utils.process_data(test_windows)
+        test_windows = utils.process_data(test_windows, device)
         test_loader = DataLoader(
             TensorDataset(
                 torch.from_numpy(test_windows),
@@ -152,4 +152,4 @@ def main(sample_data, finetune):
 
 
 if __name__ == "__main__":
-    main(sample_data=True, finetune=True)
+    main(sample_data=False, finetune=False)
