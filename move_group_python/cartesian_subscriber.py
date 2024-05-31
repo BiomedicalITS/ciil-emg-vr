@@ -33,18 +33,18 @@ class RealTimeMoveGroupInterface:
         movement = 0.1
 
         wpose = group.get_current_pose().pose
-        if direction == "up":
+        if direction.data == "up":
             wpose.position.z += movement
-        elif direction == "down":
-            wpose.positon.z -= movement
-        elif direction == "left":
+        elif direction.data == "down":
+            wpose.position.z -= movement
+        elif direction.data == "left":
             wpose.position.y += movement
-        elif direction == "right":
+        elif direction.data == "right":
             wpose.position.y -= movement
-        elif direction == "forward":
+        elif direction.data == "forward":
             wpose.position.x += movement
-        elif direction == "backward":
-            wpose.positon.x -= movement
+        elif direction.data == "backward":
+            wpose.position.x -= movement
         else:
             rospy.logwarn("Unknown direction command: %s", direction)
             return
