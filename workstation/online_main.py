@@ -7,6 +7,7 @@ import socket
 import json
 from tqdm import tqdm
 import time
+from pyquaternion import Quaternion
 
 from emager_py import majority_vote
 from emager_py.data_processing import cosine_similarity
@@ -82,12 +83,12 @@ class OnlineDataWrapper:
             "up",
             "down",
         ]
-        self.arm_movement_deadzones = [0 for _ in self.arm_movement_list]
-        self.arm_calib_data = np.zeros((len(self.arm_movement_deadzones), 3))
+        self.arm_calib_data = np.zeros((len(self.arm_movement_list), 4))
+        self.arm_calib_deadzones = [0] * len(self.arm_movement_list)
         if not calibrate_imu:
             try:
                 self.load_calibration_data()
-            except FileNotFoundError:
+            except Exception:
                 calibrate_imu = True
 
         if calibrate_imu:
@@ -113,72 +114,75 @@ class OnlineDataWrapper:
                 f"({i+1}/{len(self.arm_movement_list)}) Move the arm to the {v.upper()} position and press Enter."
             )
             self.odh.raw_data.reset_imu()
-            tmp_data = [[], [], []]
             fetched_samples = 0
             with tqdm(total=n_samples) as pbar:
                 while fetched_samples < n_samples:
                     quats = self.get_imu_data("quat")
-                    fetched_samples += len(quats)
                     if len(quats) == 0:
                         time.sleep(0.1)
                         continue
-                    pitch, yaw, roll = self.get_pyr_from_imu(quats)
-                    tmp_data[0].append(pitch)
-                    tmp_data[1].append(yaw)
-                    tmp_data[2].append(roll)
+                    fetched_samples += len(quats)
                     pbar.update(len(quats))
-            self.arm_calib_data[i] = np.array([np.mean(angle) for angle in tmp_data])
+                    quats = np.sum(quats, axis=0)
+                    self.arm_calib_data[i] += quats
+            self.arm_calib_data[i] = self.arm_calib_data[i] / fetched_samples
+        q_neutral = Quaternion(self.arm_calib_data[0])
         for i in range(1, len(self.arm_movement_list)):
-            # Recenter around the neutral position
-            self.arm_calib_data[i] = self.arm_calib_data[i] - self.arm_calib_data[0]
-            self.arm_movement_deadzones[i] = (
-                np.linalg.norm(self.arm_calib_data[i]) * 0.75
+            q_pos = Quaternion(self.arm_calib_data[i])
+            self.arm_calib_deadzones[i] = (
+                Quaternion.absolute_distance(q_neutral, q_pos) / 2
             )
-        log.info(f"Deadzones: {self.arm_movement_deadzones}")
+
+        log.info(f"Calibration quats:\n{self.arm_calib_data}")
+        log.info(f"Deadzones:\n{self.arm_calib_deadzones}")
 
     def save_calibration_data(self):
         np.savez(
-            f"data/{self.device}/calib_data.npz",
+            f"data/{self.device}/imu_calib_data.npz",
             arm_calib_data=self.arm_calib_data,
-            arm_movement_deadzones=np.array(self.arm_movement_deadzones),
+            arm_calib_deadzones=np.array(self.arm_calib_deadzones),
         )
 
     def load_calibration_data(self):
-        data = np.load(f"data/{self.device}/calib_data.npz")
+        data = np.load(f"data/{self.device}/imu_calib_data.npz")
         self.arm_calib_data = data["arm_calib_data"]
-        self.arm_movement_deadzones = list(data["arm_movement_deadzones"])
+        self.arm_calib_deadzones = list(data["arm_calib_deadzones"])
         log.info(f"Loaded calibration data:\n {self.arm_calib_data}")
-        log.info(f"Loaded calibration deadzones: {self.arm_movement_deadzones}")
+        log.info(f"Loaded calibration deadzones: {self.arm_calib_deadzones}")
 
     def run(self):
         # TODO intensity of the movement etc
-        last_arm_movement = {"arm": "none"}
+        last_arm_movement = {"arm": "neutral"}
         last_gripper_cmd = {"gripper": "none"}
         while True:
             quats = self.get_imu_data("quat")
-            pyr = self.get_pyr_from_imu(quats)
-            arm_movement = self.get_arm_movement(*pyr)
+            arm_movement = self.get_arm_movement(quats)
+            arm_movement = {"arm": arm_movement}
 
             emg_data = self.get_emg()
             preds = self.predict_from_emg(emg_data)
             gripper_cmd = self.get_gripper_command(preds)
 
             # labels = self.get_live_labels()
-            if arm_movement["arm"] != "none" and arm_movement != last_arm_movement:
+
+            if len(quats) != 0 and arm_movement != last_arm_movement:
                 log.info(f"Arm movement: {arm_movement}")
                 last_arm_movement = arm_movement
                 self.send_robot_command(arm_movement)
-            if gripper_cmd["gripper"] != "none" and gripper_cmd != last_gripper_cmd:
+
+            if len(emg_data) != 0 and gripper_cmd != last_gripper_cmd:
                 log.info(f"Gripper command: {gripper_cmd}")
                 last_gripper_cmd = gripper_cmd
                 self.send_robot_command(gripper_cmd)
 
-    def get_imu_data(self, channel: str = "quat"):
+    def get_imu_data(self, channel: str):
         """
         Get IMU quaternions, return the attitude readings. Clear the odh buffer.
 
         Params:
             - channel: str, "quat", "acc" or "both"
+
+        If channel is "quat", the quaternions are normalized.
         """
 
         start, end = 0, 4
@@ -190,13 +194,16 @@ class OnlineDataWrapper:
         odata = self.odh.get_imu_data()  # (n_samples, n_ch)
         if len(odata) == 0:
             return np.zeros((0, end - start))
+        self.odh.raw_data.reset_imu()
         if self.device == "bio":
             # myo is (quat, acc, gyro)
             # bio is (acc, quat)
             odata = np.roll(odata, 4, axis=1)
         # log.info(f"IMU data shape: {odata.shape}")
         vals = odata[:, start:end]
-        self.odh.raw_data.reset_imu()
+        if channel == "quat":
+            # quats' norm is always 1
+            vals = vals / np.linalg.norm(vals, axis=1, keepdims=True)
         return vals
 
     def get_pyr_from_imu(self, quats: np.ndarray):
@@ -219,24 +226,29 @@ class OnlineDataWrapper:
         )
         return pitch, yaw, roll
 
-    def get_arm_movement(self, pitch: float, yaw: float, roll: float):
+    def get_arm_movement(self, quats: np.ndarray):
         """
         TODO: maybe consider the degree of similarity instead of just the closest
-        Get the movement from pitch-yaw-roll values.
 
-        Pitch = [-pi/2, pi/2]
-        Yaw = [-pi, pi]
-        Roll = [-pi, pi]
+        Get the movement from quaternions.
+
+        Params:
+            - quats: np.ndarray, shape (n, 4): The quaternions to process.
+
+        Returns the arm position
         """
-        triplet = np.array([pitch, yaw, roll]).reshape((-1, 3))  # shape (n, 3)
-        # re-center it around the neutral position
-        ctriplet = triplet - self.arm_calib_data[0]
-        id = cosine_similarity(ctriplet, self.arm_calib_data, False)
-        log.info(f"Similarity matrix:\n {id}")
-        id = np.argmax(id, axis=1).item(0)
-        triplet_norm = np.linalg.norm(ctriplet, axis=1)
-        print("Triplet norm:", triplet_norm)
-        if triplet_norm < self.arm_movement_deadzones[id]:
+        if len(quats) == 0:
+            return self.arm_movement_list[0]
+
+        quats = np.mean(quats, axis=0, keepdims=True)
+        sim_score = cosine_similarity(quats, self.arm_calib_data, False)
+        id = np.argmax(sim_score, axis=1).item(0)
+        distance = Quaternion.absolute_distance(
+            Quaternion(quats.T), Quaternion(self.arm_calib_data[0].T)
+        )
+        # log.info(f"Similarity matrix:\n {sim_score}")
+        # log.info(f"Distance: {distance}")
+        if distance < self.arm_calib_deadzones[id]:
             # Inside of dead zone so assume neutral
             return self.arm_movement_list[0]
         return self.arm_movement_list[id]
@@ -297,7 +309,7 @@ class OnlineDataWrapper:
         elif gesture_str == "Wrist_Extension":
             pass
 
-        log.info(f"{gesture_str} ({maj_vote})")
+        # log.info(f"{gesture_str} ({maj_vote})")
 
         return cmd
 
@@ -461,22 +473,16 @@ if __name__ == "__main__":
         g.PEUDO_LABELS_PORT,
         g.ROBOT_IP,
         g.ROBOT_PORT,
-        True,
+        False,
     )
-    # odw.run()
+    odw.run()
     while True:
-        # data = odw.run_emg()
-        # preds = odw.run_model(data)
         t0 = time.perf_counter()
         data = odw.get_imu_data("quat")
         if len(data) == 0:
             continue
-        data = odw.get_pyr_from_imu(data)
-        mvmt = odw.get_arm_movement(*data)
+        mvmt = odw.get_arm_movement(data)
         print(mvmt)
         print("*" * 80)
         print(f"Time taken {time.perf_counter() - t0:.4f} s")
-        # print("New data shape", data.shape)
-        # print(preds)
-        # odw.visualize_emg()
         time.sleep(0.1)
