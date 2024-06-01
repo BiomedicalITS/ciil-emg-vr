@@ -38,6 +38,7 @@ class OnlineDataWrapper:
         emg_fs: int,
         emg_maj_vote_ms: int,
         num_gestures: int,
+        accelerator: str,
         pseudo_labels_port: int = 5111,
         robot_ip: str = "nvidia",
         robot_port: int = 5112,
@@ -62,7 +63,8 @@ class OnlineDataWrapper:
         self.odh = OnlineDataHandler(
             emg_arr=True, imu_arr=True, max_buffer=emg_buffer_size
         )
-        self.model = utils.get_model(True, num_gestures)
+        self.model = utils.get_model(self.device, emg_shape, num_gestures, True)
+        self.model.to(accelerator)
         self.model.eval()
         self.optimizer = self.model.configure_optimizers()
 
@@ -475,6 +477,7 @@ if __name__ == "__main__":
         g.EMG_SAMPLING_RATE,
         g.EMG_MAJ_VOTE_MS,
         len(g.LIBEMG_GESTURE_IDS),
+        g.ACCELERATOR,
         g.PEUDO_LABELS_PORT,
         g.ROBOT_IP,
         g.ROBOT_PORT,

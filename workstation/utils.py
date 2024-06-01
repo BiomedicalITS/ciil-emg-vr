@@ -1,6 +1,8 @@
 import os
 import numpy as np
 import json
+import logging as log
+import torch
 
 from libemg.streamers import sifibridge_streamer, myo_streamer, emager_streamer
 from libemg.data_handler import OnlineDataHandler
@@ -53,15 +55,15 @@ def get_filter(
     return fi
 
 
-def get_model(finetune: bool = False, num_classes: int = 5):
+def get_model(device, emg_shape: tuple, num_classes: int, finetune: bool):
     """
     Load the most recent model checkpoint and return it
     """
-    model_ckpt = get_most_recent_checkpoint()
-    print("Loading model from:", model_ckpt)
-    model = EmgCNN.load_from_checkpoint(checkpoint_path=model_ckpt)
+    log.info(f"Loading model for {device}")
+    model = EmgCNN(emg_shape, num_classes)
+    model.load_state_dict(torch.load(f"data/{device}/model.pth"))
     model.set_finetune(finetune, num_classes=num_classes)
-    return model
+    return model.eval()
 
 
 def map_class_to_gestures(data_dir: str):

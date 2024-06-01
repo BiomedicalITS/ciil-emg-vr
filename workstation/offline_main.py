@@ -22,7 +22,7 @@ def get_training_data(
     num_reps,
     rep_time,
     output_dir,
-    **kwargs
+    **kwargs,
 ):
     """
     Params:
@@ -40,7 +40,7 @@ def get_training_data(
         rep_time,
         gestures_dir,
         output_folder=output_dir,
-        **kwargs
+        **kwargs,
     )
 
 
@@ -148,7 +148,8 @@ def main(sample_data, finetune):
         if not finetune
         else utils.get_model(True, num_classes=len(g.LIBEMG_GESTURE_IDS))
     )
-    train_model(model, data_dir, train_reps, test_reps, g.DEVICE)
+    model = train_model(model, data_dir, train_reps, test_reps, g.DEVICE)
+    torch.save(model.state_dict(), g.MODEL_PATH)
 
 
 if __name__ == "__main__":
