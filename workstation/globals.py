@@ -11,9 +11,11 @@ except ImportError:
 
 DEVICE = "myo"  # "emager", "myo" or "bio"
 
-TRAIN_DATA_DIR = f"data/{DEVICE}/train/"
-FINETUNE_DATA_DIR = f"data/{DEVICE}/finetune/"
-MODEL_PATH = f"data/{DEVICE}/model.pth"
+BASE_DIR = f"data/{DEVICE}/"
+TRAIN_DATA_DIR = BASE_DIR + "train/"
+FINETUNE_DATA_DIR = BASE_DIR + "finetune/"
+MODEL_PATH = BASE_DIR + "model.pth"
+
 LIBEMG_GESTURE_IDS = [1, 2, 3, 4, 5]  # pinch = 26 ?
 
 PEUDO_LABELS_PORT = 5111

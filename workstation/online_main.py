@@ -77,11 +77,6 @@ class OnlineDataWrapper:
 
         self.start_listening()
 
-        if self.device == "bio":
-            log.warning(
-                "Move around the BioArmband for its calibration to be effective. It could take a minute or so."
-            )
-
         # Everything else is handled by EMG
         self.arm_movement_list = [
             "neutral",
@@ -116,6 +111,24 @@ class OnlineDataWrapper:
 
         Then cosine similarity to find the most approprite axis.
         """
+
+        ans = input("Do you want to calibrate the IMU? (y/N): ")
+        if ans != "y":
+            self.load_calibration_data()
+            return
+
+        if self.device == "bio":
+            ans = input("Is the Armband coming out of deep sleep? (y/N): ")
+            if ans == "y":
+                input(
+                    "Put the armband on a stable surface to calibrate its IMU. Press Enter when ready."
+                )
+                fetched_samples = 0
+                while fetched_samples < 250:
+                    quats = self.get_imu_data("quat")
+                    if len(quats) == 0:
+                        time.sleep(0.1)
+                        continue
         for i, v in enumerate(self.arm_movement_list):
             input(
                 f"({i+1}/{len(self.arm_movement_list)}) Move the arm to the {v.upper()} position and press Enter."
@@ -159,12 +172,11 @@ class OnlineDataWrapper:
 
     def run(self):
         # TODO intensity of the movement etc
-        last_arm_movement = {"arm": "neutral"}
+        last_arm_movement = "neutral"
         last_gripper_cmd = {"gripper": "none"}
         while True:
             quats = self.get_imu_data("quat")
             arm_movement = self.get_arm_movement(quats)
-            arm_movement = {"arm": arm_movement}
 
             emg_data = self.get_emg()
             preds = self.predict_from_emg(emg_data)
@@ -172,13 +184,13 @@ class OnlineDataWrapper:
 
             # labels = self.get_live_labels()
 
-            if len(quats) != 0 and arm_movement != last_arm_movement:
+            if arm_movement is not None and arm_movement != last_arm_movement:
                 log.info(f"Arm movement: {arm_movement}")
                 last_arm_movement = arm_movement
-                self.send_robot_command(arm_movement)
+                self.send_robot_command({"arm": arm_movement})
 
-            if len(emg_data) != 0 and gripper_cmd != last_gripper_cmd:
-                log.info(f"Gripper command: {gripper_cmd}")
+            if gripper_cmd is not None and gripper_cmd != last_gripper_cmd:
+                log.info(f"Gripper command: {gripper_cmd['gripper']}")
                 last_gripper_cmd = gripper_cmd
                 self.send_robot_command(gripper_cmd)
 
@@ -242,10 +254,10 @@ class OnlineDataWrapper:
         Params:
             - quats: np.ndarray, shape (n, 4): The quaternions to process.
 
-        Returns the arm position
+        Returns the arm position. None if quats is empty.
         """
         if len(quats) == 0:
-            return self.arm_movement_list[0]
+            return None
 
         quats = np.mean(quats, axis=0, keepdims=True)
         sim_score = cosine_similarity(quats, self.arm_calib_data, False)
@@ -303,7 +315,7 @@ class OnlineDataWrapper:
         """
         cmd = {"gripper": "none"}
         if len(preds) == 0:
-            return cmd
+            return None
         self.voter.extend(preds)
         maj_vote = self.voter.vote().item(0)
         gesture_str = self.gesture_dict[maj_vote]

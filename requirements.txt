@@ -4,7 +4,6 @@ matplotlib
 bleak
 vpython
 pyquaternion
+tqdm
 libemg @ git+https://github.com/gabrielpgagne/libemg@main
 emager_py @ git+https://github.com/SBIOML/emager-py@main
-#-e "file:///Users/gabrielgagne/Documents/git/emager-py"
-#-e "file:///Users/gabrielgagne/Documents/git/libemg"

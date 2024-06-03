@@ -62,7 +62,7 @@ def get_model(device, emg_shape: tuple, num_classes: int, finetune: bool):
     log.info(f"Loading model for {device}")
     model = EmgCNN(emg_shape, num_classes)
     model.load_state_dict(torch.load(f"data/{device}/model.pth"))
-    model.set_finetune(finetune, num_classes=num_classes)
+    model.set_finetune(finetune, num_classes)
     return model.eval()
 
 

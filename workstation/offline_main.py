@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data import TensorDataset
 
 import lightning as L
+from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 
 from libemg.screen_guided_training import ScreenGuidedTraining
 from libemg.utils import make_regex
@@ -93,7 +94,14 @@ def train_model(
         shuffle=True,
     )
 
+    model = model.train()
+    trainer = L.Trainer(
+        max_epochs=10,
+        callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
+    )
+    trainer.fit(model, train_loader)
     if len(test_reps) > 0:
+        # Test
         test_windows, test_metadata = test_data.parse_windows(ws, wi)
         test_windows = test_windows.swapaxes(1, 2)
         test_windows = np.expand_dims(test_windows, axis=1)
@@ -105,11 +113,6 @@ def train_model(
             ),
             batch_size=128,
         )
-
-    model = model.train()
-    trainer = L.Trainer(max_epochs=10)
-    trainer.fit(model, train_loader)
-    if len(test_reps) > 0:
         trainer.test(model, test_loader)
 
     return model
@@ -146,11 +149,16 @@ def main(sample_data, finetune):
     model = (
         EmgCNN(g.EMG_DATA_SHAPE, len(g.LIBEMG_GESTURE_IDS))
         if not finetune
-        else utils.get_model(True, num_classes=len(g.LIBEMG_GESTURE_IDS))
+        else utils.get_model(
+            g.DEVICE,
+            g.EMG_DATA_SHAPE,
+            num_classes=len(g.LIBEMG_GESTURE_IDS),
+            finetune=True,
+        )
     )
     model = train_model(model, data_dir, train_reps, test_reps, g.DEVICE)
     torch.save(model.state_dict(), g.MODEL_PATH)
 
 
 if __name__ == "__main__":
-    main(sample_data=False, finetune=False)
+    main(sample_data=True, finetune=False)
