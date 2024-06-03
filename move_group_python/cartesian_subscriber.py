@@ -3,11 +3,11 @@
 import rospy
 import moveit_commander
 import geometry_msgs.msg
-from moveit_commander.conversions import pose_to_list
 from std_msgs.msg import String
 from robotiq_hande_ros_driver.srv import gripper_service
 import sys
 import copy
+import threading
 
 class RealTimeMoveGroupInterface:
     def __init__(self):
@@ -23,37 +23,54 @@ class RealTimeMoveGroupInterface:
         self.gripper_srv = rospy.ServiceProxy('gripper_service', gripper_service)
         self.gripper_srv.wait_for_service()
 
-        rospy.Subscriber("/arm_command", String, self.move_cartesian)
+        self.current_direction = None
+        self.lock = threading.Lock()
+
+        rospy.Subscriber("/arm_command", String, self.update_direction)
         rospy.Subscriber("/gripper_command", String, self.control_gripper)
 
-            
-    def move_cartesian(self, direction):
-        group = self.group
-        waypoints = []
-        movement = 0.1
+        self.movement_thread = threading.Thread(target=self.continuous_move)
+        self.movement_thread.start()
 
-        wpose = group.get_current_pose().pose
-        if direction.data == "up":
-            wpose.position.z += movement
-        elif direction.data == "down":
-            wpose.position.z -= movement
-        elif direction.data == "left":
-            wpose.position.y += movement
-        elif direction.data == "right":
-            wpose.position.y -= movement
-        elif direction.data == "forward":
-            wpose.position.x += movement
-        elif direction.data == "backward":
-            wpose.position.x -= movement
-        else:
-            rospy.logwarn("Unknown direction command: %s", direction)
-            return
-        
-        waypoints.append(copy.deepcopy(wpose))
+    def update_direction(self, direction):
+        with self.lock:
+            self.current_direction = direction.data
 
-        plan, fraction = group.compute_cartesian_path(waypoints, 0.01, 0.0)
-        group.execute(plan, wait=True)
+    def continuous_move(self):
+        rate = rospy.Rate(10)  # 10 Hz
+        movement = 0.01
 
+        while not rospy.is_shutdown():
+            if self.current_direction:
+                with self.lock:
+                    direction = self.current_direction
+
+                group = self.group
+                waypoints = []
+
+                wpose = group.get_current_pose().pose
+                if direction == "up":
+                    wpose.position.z += movement
+                elif direction == "down":
+                    wpose.position.z -= movement
+                elif direction == "left":
+                    wpose.position.y += movement
+                elif direction == "right":
+                    wpose.position.y -= movement
+                elif direction == "forward":
+                    wpose.position.x += movement
+                elif direction == "backward":
+                    wpose.position.x -= movement
+                else:
+                    rospy.logwarn("Unknown direction command: %s", direction)
+                    continue
+
+                waypoints.append(copy.deepcopy(wpose))
+
+                (plan, fraction) = group.compute_cartesian_path(waypoints, 0.01, 0.0)
+                group.execute(plan, wait=False)  # Non-blocking execution
+
+            rate.sleep()
 
     def control_gripper(self, command):
         if command.data == "open":
@@ -62,17 +79,6 @@ class RealTimeMoveGroupInterface:
             self.gripper_srv(position=255, speed=255, force=255)
         else:
             rospy.logwarn("Unknown gripper command: %s", command.data)
-
-    def all_close(self, goal, actual, tolerance):
-        if type(goal) is list:
-            for index in range(len(goal)):
-                if abs(actual[index] - goal[index]) > tolerance:
-                    return False
-        elif type(goal) is geometry_msgs.msg.PoseStamped:
-            return self.all_close(goal.pose, actual.pose, tolerance)
-        elif type(goal) is geometry_msgs.msg.Pose:
-            return self.all_close(pose_to_list(goal), pose_to_list(actual), tolerance)
-        return True
 
 if __name__ == '__main__':
     try:
