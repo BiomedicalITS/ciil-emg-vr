@@ -16,7 +16,10 @@ TRAIN_DATA_DIR = BASE_DIR + "train/"
 FINETUNE_DATA_DIR = BASE_DIR + "finetune/"
 MODEL_PATH = BASE_DIR + "model.pth"
 
-LIBEMG_GESTURE_IDS = [1, 2, 3, 4, 5]  # pinch = 26 ?
+# LIBEMG_GESTURE_IDS = [1, 2, 3, 4, 5] # minimal
+# LIBEMG_GESTURE_IDS = [1, 2, 3, 4, 5, 6, 7]  # + supi + prona
+LIBEMG_GESTURE_IDS = [1, 2, 3, 4, 5, 14, 15]  # + abduction + adduction
+# LIBEMG_GESTURE_IDS = [1, 2, 3, 4, 5, 6, 7, 14, 15]  # + supi + prona + abduction + adduction
 
 PEUDO_LABELS_PORT = 5111
 ROBOT_PORT = 5112

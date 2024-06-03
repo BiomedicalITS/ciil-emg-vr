@@ -1,4 +1,5 @@
 import os
+import shutil
 import numpy as np
 import torch
 from torch import nn
@@ -35,6 +36,10 @@ def get_training_data(
     gestures_dir = "data/gestures/"
     train_ui = ScreenGuidedTraining()
     train_ui.download_gestures(gestures, gestures_dir)
+    if 14 in gestures:
+        # Add abduction and adduction images
+        shutil.copy("wrist_images/Thumbs_Down.png", gestures_dir)
+        shutil.copy("wrist_images/Thumbs_Up.png", gestures_dir)
     train_ui.launch_training(
         online_data_handler,
         num_reps,
