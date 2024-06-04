@@ -3,20 +3,30 @@ from enum import IntEnum
 
 class ArmControl(IntEnum):
     NEUTRAL = 0
-    LEFT = 1  # horizontal (x)
-    RIGHT = 2  # horizontal (-x)
-    UP = 3  # horizontal (y)
-    DOWN = 4  # horizontal (-y)
-    SUPINATION = 5  # vertical (z)
-    PRONATION = 6  # vertical (-z)
+    LEFT = 1
+    """ horizontal (x)"""
+    RIGHT = 2
+    """horizontal (-x)"""
+    UP = 3
+    """horizontal (y)"""
+    DOWN = 4
+    """horizontal (-y)"""
+    SUPINATION = 5
+    """vertical (z)"""
+    PRONATION = 6
+    """vertical (-z)"""
 
 
 class WristControl(IntEnum):
     NEUTRAL = 0
-    FLEXION = 1  # towards body, clockwise rotation
-    EXTENSION = 2  # away from body, counter-clockwise rotation
-    ABDUCTION = 3  # down, end-effector towards ground
-    ADDUCTION = 4  # up, end-effector towards sky
+    FLEXION = 1
+    """towards body, clockwise rotation"""
+    EXTENSION = 2
+    """away from body, counter-clockwise rotation"""
+    ABDUCTION = 3
+    """down, end-effector towards ground"""
+    ADDUCTION = 4
+    """up, end-effector towards sky"""
 
 
 class GripperControl(IntEnum):
