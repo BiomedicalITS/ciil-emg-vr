@@ -2,6 +2,17 @@
 
 This project investigates the implementation of a self-supervised EMG gesture recognition system with the help of contextual information.
 
+## Using nfc-emg
+
+Leveraging LibEMG, we reuse the paradigm of a hardware-agnostic _OnlineDataHandler_ reading in live data from a UDP _streamer_.
+
+These are the main scripts of interest in `workstation/`:
+
+- `offline_main.py` is executed to train the initial model. It is also used to finetune the model in an offline manner. Screen Guided Training is used for that.
+- `online_main.py` is the live experiment script. It starts by calibrating the IMU. Then, the `run()` function infinitely loops. It uses the IMU for 3D cartesian position. EMG is used for wrist and grip detection. The commands are sent to a UDP port. An input UDP socket is also opened to receive self-supervised labels.
+- `globals.py` defines system-wide parameters. This file is the main way of configuring the system.
+- `schemas.py` is used to interface with an external robot control system. It should be imported on the client-side to ensure compatibility.
+
 ## General overview
 
 ### NFC
@@ -13,19 +24,6 @@ In this scenario, a UR5 robotic arm is used for live demonstrations. Its 3D posi
 ### VR
 
 In VR, virtual objects can be freely placed in a simulated environment, eliminating the need to program and place NFC tags on physical objects. Also, arm and hand tracking is offered by the headset. This alternative setup helps to replicate experiments more effectively and follows in the current trends in using VR to ease the training for EMG prosthetics.
-
-## Architecture
-
-Leveraging LibEMG, we reuse the paradigm of a hardware-agnostic _OnlineDataHandler_ reading in live data from a UDP _streamer_.
-
-The main process is responsible for:
-
-- Loading a model
-- Reading in the data from _OnlineDataHandler_
-- Outputting gesture intentions, TBD: define if they are sent to ROS directly, TCP, UDP, etc
-- If runtime labels are generated, use them to fine-tune (retrain from scratch?) on-the-fly the model
-
-After an initial screen guided training step (or not?),
 
 ## Ideas
 

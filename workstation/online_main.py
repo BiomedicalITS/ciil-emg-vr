@@ -14,11 +14,13 @@ from emager_py.data_processing import cosine_similarity
 
 import numpy as np
 import torch
+from scipy.special import softmax
 
 from libemg.data_handler import OnlineDataHandler
 
 import utils
 import globals as g
+import schemas as s
 
 
 def get_attitude_from_quats(qw, qx, qy, qz):
@@ -33,9 +35,10 @@ class OnlineDataWrapper:
     def __init__(
         self,
         device: str,
+        emg_fs: int,
         emg_shape: tuple,
         emg_buffer_size: int,
-        emg_fs: int,
+        emg_window_size_ms: int,
         emg_maj_vote_ms: int,
         num_gestures: int,
         accelerator: str,
@@ -48,6 +51,16 @@ class OnlineDataWrapper:
         Main object to do the NFC-EMG stuff.
 
         Starts listening to the data stream.
+
+        Params:
+            - device: str, the sensor used. "emager", "myo" or "bio"
+            - emg_fs: int, the EMG sampling rate
+            - emg_shape: tuple, the shape of the EMG data
+            - emg_buffer_size: int, the size of the EMG buffer to keep in memory
+            - emg_window_size: int, minimum size of new EMG data to process in ms
+            - emg_maj_vote_ms: int, the majority vote window in ms
+            - num_gestures: int, the number of gestures to classify
+            - accelerator: str, the device to run the model on ("cuda", "mps", "cpu", etc)
         """
 
         self.device = device
@@ -68,8 +81,9 @@ class OnlineDataWrapper:
         self.model.eval()
         self.optimizer = self.model.configure_optimizers()
 
-        self.emg_buffer_size = emg_buffer_size
         self.emg_shape = emg_shape
+        self.emg_buffer_size = emg_buffer_size
+        self.emg_window_size = emg_window_size_ms * emg_fs // 1000
         self.last_emg_sample = np.zeros((1, *self.emg_shape))
 
         self.voter = majority_vote.MajorityVote(emg_maj_vote_ms * emg_fs // 1000)
@@ -78,13 +92,7 @@ class OnlineDataWrapper:
         self.start_listening()
 
         # Everything else is handled by EMG
-        self.arm_movement_list = [
-            "neutral",
-            "left",
-            "right",
-            "up",
-            "down",
-        ]
+        self.arm_movement_list = s.ArmControl._member_names_
         self.arm_calib_data = np.zeros((len(self.arm_movement_list), 4))
         self.arm_calib_deadzones = [0] * len(self.arm_movement_list)
         if not calibrate_imu:
@@ -123,12 +131,17 @@ class OnlineDataWrapper:
                 input(
                     "Put the armband on a stable surface to calibrate its IMU. Press Enter when ready."
                 )
+                calib_samples = 250
                 fetched_samples = 0
-                while fetched_samples < 250:
-                    quats = self.get_imu_data("quat")
-                    if len(quats) == 0:
-                        time.sleep(0.1)
-                        continue
+                with tqdm(total=calib_samples) as pbar:
+                    while fetched_samples < calib_samples:
+                        quats = self.get_imu_data("quat")
+                        if quats is None:
+                            time.sleep(0.1)
+                            continue
+                        fetched_samples += len(quats)
+                        pbar.update(len(quats))
+
         for i, v in enumerate(self.arm_movement_list):
             input(
                 f"({i+1}/{len(self.arm_movement_list)}) Move the arm to the {v.upper()} position and press Enter."
@@ -138,7 +151,7 @@ class OnlineDataWrapper:
             with tqdm(total=n_samples) as pbar:
                 while fetched_samples < n_samples:
                     quats = self.get_imu_data("quat")
-                    if len(quats) == 0:
+                    if quats is None:
                         time.sleep(0.1)
                         continue
                     fetched_samples += len(quats)
@@ -171,28 +184,43 @@ class OnlineDataWrapper:
         log.info(f"Loaded calibration deadzones: {self.arm_calib_deadzones}")
 
     def run(self):
-        # TODO intensity of the movement etc
-        last_arm_movement = "neutral"
-        last_gripper_cmd = {"gripper": "none"}
-        while True:
-            quats = self.get_imu_data("quat")
-            arm_movement = self.get_arm_movement(quats)
+        """
+        IMU determines the arm movement.
+        """
 
-            emg_data = self.get_emg()
+        # TODO intensity of the movement etc
+        last_gripper_cmd = None
+        last_wrist_cmd = None
+        last_arm_cmd = None
+        while True:
+            t0 = time.perf_counter()
+            quats = self.get_imu_data("quat")
+            imu_command = self.get_arm_movement(quats)
+
+            emg_data = self.get_emg_data(True, self.emg_window_size)
             preds = self.predict_from_emg(emg_data)
-            gripper_cmd = self.get_gripper_command(preds)
+            emg_command = self.get_gripper_command(preds)
 
             # labels = self.get_live_labels()
 
-            if arm_movement is not None and arm_movement != last_arm_movement:
-                log.info(f"Arm movement: {arm_movement}")
-                last_arm_movement = arm_movement
-                self.send_robot_command({"arm": arm_movement})
+            if imu_command is not None and imu_command != last_arm_cmd:
+                log.info(f"Arm: {imu_command.name}")
+                last_arm_cmd = imu_command
+                self.send_robot_command(s.to_dict(imu_command))
+            if emg_command is not None:
+                if emg_command in s.GripperControl and emg_command != last_gripper_cmd:
+                    log.info(f"Gripper: {emg_command.name}")
+                    last_gripper_cmd = emg_command
+                    self.send_robot_command(s.to_dict(emg_command))
+                elif emg_command in s.WristControl and emg_command != last_wrist_cmd:
+                    log.info(f"Wrist: {emg_command.name}")
+                    last_wrist_cmd = emg_command
+                    self.send_robot_command(s.to_dict(emg_command))
 
-            if gripper_cmd is not None and gripper_cmd != last_gripper_cmd:
-                log.info(f"Gripper command: {gripper_cmd['gripper']}")
-                last_gripper_cmd = gripper_cmd
-                self.send_robot_command(gripper_cmd)
+            # if emg_data is not None:
+            #     print("*" * 80)
+            #     print("EMG length:", len(emg_data))
+            #     print(f"Time taken {time.perf_counter() - t0:.4f} s")
 
     def get_imu_data(self, channel: str):
         """
@@ -212,7 +240,7 @@ class OnlineDataWrapper:
 
         odata = self.odh.get_imu_data()  # (n_samples, n_ch)
         if len(odata) == 0:
-            return np.zeros((0, end - start))
+            return None
         self.odh.raw_data.reset_imu()
         if self.device == "bio":
             # myo is (quat, acc, gyro)
@@ -256,7 +284,7 @@ class OnlineDataWrapper:
 
         Returns the arm position. None if quats is empty.
         """
-        if len(quats) == 0:
+        if quats is None:
             return None
 
         quats = np.mean(quats, axis=0, keepdims=True)
@@ -269,41 +297,42 @@ class OnlineDataWrapper:
         # log.info(f"Distance: {distance}")
         if distance < self.arm_calib_deadzones[id]:
             # Inside of dead zone so assume neutral
-            return self.arm_movement_list[0]
-        return self.arm_movement_list[id]
+            return s.ArmControl[self.arm_movement_list[id]]
+        return s.ArmControl[self.arm_movement_list[id]]
 
-    def get_emg(self, process=True):
+    def get_emg_data(self, process: bool, sample_windows: int):
         odata = self.odh.get_data()
         if len(odata) < self.emg_buffer_size:
-            return np.zeros((0, *self.emg_shape), np.float32)
+            return None
         pos = np.argwhere((self.last_emg_sample == odata).all(axis=1))
-        if pos.size == 0:
+        if len(pos) == 0:
             # if empty, means we must take the entire buffer
-            pos = np.array([0])
-        elif pos.size > 1:
-            log.error("Multiple positions found: ", pos)
-        pos = pos.item(0)
-        if pos == len(odata) - 1:
-            # No new values
-            return np.zeros((0, *self.emg_shape), np.float32)
-        self.last_emg_sample = odata[-1]
-        data = odata.reshape(-1, *self.emg_shape)
+            pos = 0
+        else:
+            pos = pos.item(0) + 1
+        if pos > (len(odata) - sample_windows):
+            return None
+        self.last_emg_sample = odata[-1:]  # MUST stay here
+        data = np.reshape(odata, (-1, *self.emg_shape))
         if process:
             data = utils.process_data(data, self.device)
-        return data[pos + 1 :]
+        return data[pos:]
 
     def predict_from_emg(self, data: np.ndarray):
         """
         Run the model on the given data.
 
-        TODO show confidencev%
+        Returns None if data is empty. Else, an array of shape [n_samples,]
+        TODO show confidence%
         """
-        if len(data) == 0:
-            return np.zeros((0,), np.uint8)
+        if data is None:
+            return None
         data = data.reshape(-1, 1, *self.emg_shape)
         samples = torch.from_numpy(data).to(g.ACCELERATOR)
-        pred = self.model(samples)
-        pred = pred.cpu().detach().numpy()
+        pred = self.model(samples).cpu().detach().numpy()
+        pred = softmax(pred, axis=1)
+        # log.info(f"Predictions:\n {np.mean(pred, axis=0)}")
+        pred[pred < 0.7] = 0
         return np.argmax(pred, axis=1)
 
     def get_gripper_command(self, preds: np.ndarray):
@@ -313,20 +342,28 @@ class OnlineDataWrapper:
         Params:
             - preds: np.ndarray, shape (N,). The predictions from the model.
         """
-        cmd = {"gripper": "none"}
-        if len(preds) == 0:
+        if preds is None:
             return None
+        cmd = s.GripperControl.NEUTRAL
         self.voter.extend(preds)
         maj_vote = self.voter.vote().item(0)
         gesture_str = self.gesture_dict[maj_vote]
         if gesture_str == "Hand_Open":
-            cmd["gripper"] = "open"
+            cmd = s.GripperControl.OPEN
         elif gesture_str == "Hand_Close":
-            cmd["gripper"] = "close"
+            cmd = s.GripperControl.CLOSE
         elif gesture_str == "Wrist_Flexion":
-            pass
+            cmd = s.WristControl.FLEXION
         elif gesture_str == "Wrist_Extension":
-            pass
+            cmd = s.WristControl.EXTENSION
+        elif gesture_str == "Thumbs_Down":
+            cmd = s.WristControl.ABDUCTION
+        elif gesture_str == "Thumbs_Up":
+            cmd = s.WristControl.ADDUCTION
+        elif gesture_str == "Wrist_Pronation":
+            cmd = s.ArmControl.PRONATION
+        elif gesture_str == "Wrist_Supination":
+            cmd = s.ArmControl.SUPINATION
 
         # log.info(f"{gesture_str} ({maj_vote})")
 
@@ -357,7 +394,7 @@ class OnlineDataWrapper:
         """
         Finetune the model on the given data and labels.
         """
-        self.model = self.model.train()
+        self.model.train()
         losses = []
         for _ in range(epochs):
             loss = self.model.training_step((data, labels), 0)
@@ -400,10 +437,11 @@ class OnlineDataWrapper:
             ),
         )
         while True:
-            pitch, yaw, roll = self.get_imu_data()
-            if pitch is None:
+            quats = self.get_imu_data("quats")
+            if len(quats) == 0:
                 continue
-            pit, ya, ro = pitch[-1], yaw[-1], roll[-1]
+            pit, ya, ro = self.get_pyr_from_imu(quats)
+            pit, ya, ro = pit.item(), ya.item(), ro.item()
             vp.rate(50)
             k = vp.vector(
                 vp.cos(ya) * vp.cos(pit), vp.sin(pit), vp.sin(ya) * vp.cos(pit)
@@ -484,9 +522,10 @@ if __name__ == "__main__":
 
     odw = OnlineDataWrapper(
         g.DEVICE,
+        g.EMG_SAMPLING_RATE,
         g.EMG_DATA_SHAPE,
         g.EMG_SAMPLING_RATE,
-        g.EMG_SAMPLING_RATE,
+        25,
         g.EMG_MAJ_VOTE_MS,
         len(g.LIBEMG_GESTURE_IDS),
         g.ACCELERATOR,
@@ -495,6 +534,7 @@ if __name__ == "__main__":
         g.ROBOT_PORT,
         # False,
     )
+    # odw.visualize_emg()
     odw.run()
     while True:
         t0 = time.perf_counter()
