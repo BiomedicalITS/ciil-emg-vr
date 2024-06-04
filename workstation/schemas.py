@@ -26,6 +26,14 @@ class GripperControl(IntEnum):
 
 
 def from_dict(d: dict):
+    """Convert a dictionary to an enum object from this module
+
+    Args:
+        d (dict): Must have key "arm", "wrist" or "gripper" with a value corresponding to the enum
+
+    Returns:
+        IntEnum: The enum object
+    """
     if "arm" in d.keys():
         return ArmControl(d["arm"])
     elif "wrist" in d.keys():
@@ -35,12 +43,20 @@ def from_dict(d: dict):
 
 
 def to_dict(e: IntEnum):
+    """Convert an enum object to a dictionary
+
+    Args:
+        e (IntEnum): An object from this module
+
+    Returns:
+        dict: The dictionary
+    """
     if e in ArmControl:
-        return {"arm": e}
+        return {"arm": int(e)}
     elif e in WristControl:
-        return {"wrist": e}
+        return {"wrist": int(e)}
     elif e in GripperControl:
-        return {"gripper": e}
+        return {"gripper": int(e)}
 
 
 if __name__ == "__main__":
@@ -48,4 +64,6 @@ if __name__ == "__main__":
     print(o.name)
     print(o in WristControl)
     print(o in GripperControl)
-    print(to_dict(o))
+    dico = to_dict(o)
+    obj = from_dict(dico)
+    print(dico, obj)
