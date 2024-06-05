@@ -76,15 +76,22 @@ class OnlineDataWrapper:
         self.odh = OnlineDataHandler(
             emg_arr=True, imu_arr=True, max_buffer=emg_buffer_size
         )
+
+        self.accelerator = accelerator
         self.model = utils.get_model(self.device, emg_shape, num_gestures, True)
-        self.model.to(accelerator)
+        self.model.to(self.accelerator)
         self.model.eval()
         self.optimizer = self.model.configure_optimizers()
+
+        self.imu_window_size = 10 if self.device == "myo" else 20  # 200 ms
 
         self.emg_shape = emg_shape
         self.emg_buffer_size = emg_buffer_size
         self.emg_window_size = emg_window_size_ms * emg_fs // 1000
         self.last_emg_sample = np.zeros((1, *self.emg_shape))
+
+        self.emg_buffer = np.zeros((0, 1, *self.emg_shape))
+        self.labels = np.zeros((0,))
 
         self.voter = majority_vote.MajorityVote(emg_maj_vote_ms * emg_fs // 1000)
         self.gesture_dict = utils.map_class_to_gestures(g.TRAIN_DATA_DIR)
@@ -189,40 +196,70 @@ class OnlineDataWrapper:
         """
 
         # TODO intensity of the movement etc
+        last_labels = None
         last_gripper_cmd = None
         last_wrist_cmd = None
         last_arm_cmd = None
         while True:
-            t0 = time.perf_counter()
-            quats = self.get_imu_data("quat")
+            # t0 = time.perf_counter()
+
+            quats = self.get_imu_data("quat", self.imu_window_size)
             imu_command = self.get_arm_movement(quats)
 
             emg_data = self.get_emg_data(True, self.emg_window_size)
             preds = self.predict_from_emg(emg_data)
-            emg_command = self.get_gripper_command(preds)
+            gripper_cmd, wrist_cmd = self.get_gripper_command(preds)
 
-            # labels = self.get_live_labels()
+            labels = self.get_live_labels()
+            if labels is not None:
+                last_labels = labels
 
+            # only do Wrist/Gripper actions when arm is neutral, force neutral
+            # only do Gripper actions when wrist is neutral
+            if last_arm_cmd != s.ArmControl.NEUTRAL:
+                gripper_cmd = s.GripperControl.NEUTRAL
+                wrist_cmd = s.WristControl.NEUTRAL
+            elif last_wrist_cmd != s.WristControl.NEUTRAL:
+                gripper_cmd = s.GripperControl.NEUTRAL
+
+            # Live labelling stuff
+            if emg_data is not None and last_labels is not None:
+                self.emg_buffer = np.vstack(
+                    (self.emg_buffer, np.reshape(emg_data, (-1, 1, *self.emg_shape)))
+                )
+                self.labels = np.hstack(
+                    (self.labels, np.repeat(last_labels, len(emg_data)))
+                )
+
+            # Label buffer filled, do finetuning pass
+            if len(self.labels) >= self.emg_buffer_size:
+                self.finetune_model(self.emg_buffer, self.labels)
+                last_labels = None
+                self.emg_buffer = np.zeros((0, 1, *self.emg_shape))
+                self.labels = np.zeros((0,))
+
+            # Send commands for arm, wrist, gripper
             if imu_command is not None and imu_command != last_arm_cmd:
                 log.info(f"Arm: {imu_command.name}")
                 last_arm_cmd = imu_command
                 self.send_robot_command(s.to_dict(imu_command))
-            if emg_command is not None:
-                if emg_command in s.GripperControl and emg_command != last_gripper_cmd:
-                    log.info(f"Gripper: {emg_command.name}")
-                    last_gripper_cmd = emg_command
-                    self.send_robot_command(s.to_dict(emg_command))
-                elif emg_command in s.WristControl and emg_command != last_wrist_cmd:
-                    log.info(f"Wrist: {emg_command.name}")
-                    last_wrist_cmd = emg_command
-                    self.send_robot_command(s.to_dict(emg_command))
+
+            if wrist_cmd is not None and wrist_cmd != last_wrist_cmd:
+                log.info(f"Wrist: {wrist_cmd.name}")
+                last_wrist_cmd = wrist_cmd
+                self.send_robot_command(s.to_dict(wrist_cmd))
+
+            if gripper_cmd is not None and gripper_cmd != last_gripper_cmd:
+                log.info(f"Gripper: {gripper_cmd.name}")
+                last_gripper_cmd = gripper_cmd
+                self.send_robot_command(s.to_dict(gripper_cmd))
 
             # if emg_data is not None:
             #     print("*" * 80)
             #     print("EMG length:", len(emg_data))
             #     print(f"Time taken {time.perf_counter() - t0:.4f} s")
 
-    def get_imu_data(self, channel: str):
+    def get_imu_data(self, channel: str, sample_windows: int = 1):
         """
         Get IMU quaternions, return the attitude readings. Clear the odh buffer.
 
@@ -239,7 +276,7 @@ class OnlineDataWrapper:
             start, end = 0, 7
 
         odata = self.odh.get_imu_data()  # (n_samples, n_ch)
-        if len(odata) == 0:
+        if len(odata) < sample_windows:
             return None
         self.odh.raw_data.reset_imu()
         if self.device == "bio":
@@ -301,6 +338,10 @@ class OnlineDataWrapper:
         return s.ArmControl[self.arm_movement_list[id]]
 
     def get_emg_data(self, process: bool, sample_windows: int):
+        """Get EMG data.
+
+        Returns None if no new data. Otherwise the data with shape (n_samples, *emg_shape)
+        """
         odata = self.odh.get_data()
         if len(odata) < self.emg_buffer_size:
             return None
@@ -337,29 +378,30 @@ class OnlineDataWrapper:
 
     def get_gripper_command(self, preds: np.ndarray):
         """
-        Get the gripper command from the predictions.
+        Get the gripper and wrist commands from the predictions.
 
         Params:
             - preds: np.ndarray, shape (N,). The predictions from the model.
         """
         if preds is None:
-            return None
-        cmd = s.GripperControl.NEUTRAL
+            return None, None
+        gripper_cmd = s.GripperControl.NEUTRAL
+        wrist_cmd = s.WristControl.NEUTRAL
         self.voter.extend(preds)
         maj_vote = self.voter.vote().item(0)
         gesture_str = self.gesture_dict[maj_vote]
         if gesture_str == "Hand_Open":
-            cmd = s.GripperControl.OPEN
+            gripper_cmd = s.GripperControl.OPEN
         elif gesture_str == "Hand_Close":
-            cmd = s.GripperControl.CLOSE
+            gripper_cmd = s.GripperControl.CLOSE
         elif gesture_str == "Wrist_Flexion":
-            cmd = s.WristControl.FLEXION
+            wrist_cmd = s.WristControl.FLEXION
         elif gesture_str == "Wrist_Extension":
-            cmd = s.WristControl.EXTENSION
+            wrist_cmd = s.WristControl.EXTENSION
         elif gesture_str == "Thumbs_Down":
-            cmd = s.WristControl.ABDUCTION
+            wrist_cmd = s.WristControl.ABDUCTION
         elif gesture_str == "Thumbs_Up":
-            cmd = s.WristControl.ADDUCTION
+            wrist_cmd = s.WristControl.ADDUCTION
         elif gesture_str == "Wrist_Pronation":
             cmd = s.ArmControl.PRONATION
         elif gesture_str == "Wrist_Supination":
@@ -367,7 +409,7 @@ class OnlineDataWrapper:
 
         # log.info(f"{gesture_str} ({maj_vote})")
 
-        return cmd
+        return gripper_cmd, wrist_cmd
 
     def get_live_labels(self):
         """
@@ -394,6 +436,9 @@ class OnlineDataWrapper:
         """
         Finetune the model on the given data and labels.
         """
+        data = torch.from_numpy(data.astype(np.float32)).to(self.accelerator)
+        labels = torch.from_numpy(labels.astype(np.uint8)).to(self.accelerator)
+        print(labels.shape)
         self.model.train()
         losses = []
         for _ in range(epochs):

@@ -1,7 +1,16 @@
 from enum import IntEnum
+from typing import Generic
 
 
-class ArmControl(IntEnum):
+class GenericControl(IntEnum):
+    def __eq__(self, other):
+        return self is other
+
+    def __ne__(self, value: object) -> bool:
+        return not self == value
+
+
+class ArmControl(GenericControl):
     NEUTRAL = 0
     LEFT = 1
     """ horizontal (x)"""
@@ -17,7 +26,7 @@ class ArmControl(IntEnum):
     """vertical (-z)"""
 
 
-class WristControl(IntEnum):
+class WristControl(GenericControl):
     NEUTRAL = 0
     FLEXION = 1
     """towards body, clockwise rotation"""
@@ -29,7 +38,7 @@ class WristControl(IntEnum):
     """up, end-effector towards sky"""
 
 
-class GripperControl(IntEnum):
+class GripperControl(GenericControl):
     NEUTRAL = 0
     CLOSE = 1
     OPEN = 2
@@ -50,9 +59,11 @@ def from_dict(d: dict):
         return WristControl(d["wrist"])
     elif "gripper" in d.keys():
         return GripperControl(d["gripper"])
+    else:
+        raise KeyError("No valid key in dictionary")
 
 
-def to_dict(e: IntEnum):
+def to_dict(e: GenericControl):
     """Convert an enum object to a dictionary
 
     Args:
@@ -61,19 +72,56 @@ def to_dict(e: IntEnum):
     Returns:
         dict: The dictionary
     """
-    if e in ArmControl:
+    if isinstance(e, ArmControl):
         return {"arm": int(e)}
-    elif e in WristControl:
+    elif isinstance(e, WristControl):
         return {"wrist": int(e)}
-    elif e in GripperControl:
+    elif isinstance(e, GripperControl):
         return {"gripper": int(e)}
+    else:
+        raise ValueError("Invalid enum type")
 
 
 if __name__ == "__main__":
-    o = WristControl(1)
-    print(o.name)
-    print(o in WristControl)
-    print(o in GripperControl)
-    dico = to_dict(o)
-    obj = from_dict(dico)
-    print(dico, obj)
+    # Test todict and fromdict for every class
+    o = ArmControl.NEUTRAL
+    d = to_dict(o)
+    assert d == {"arm": 0}
+    assert from_dict(d) == o
+
+    o = WristControl.ABDUCTION
+    d = to_dict(o)
+    assert d == {"wrist": 3}
+    assert from_dict(d) == o
+
+    o = GripperControl.OPEN
+    d = to_dict(o)
+    assert d == {"gripper": 2}
+    assert from_dict(d) == o
+
+    # Test equality
+    o = ArmControl.NEUTRAL
+    o2 = ArmControl(0)
+    assert o == o2
+
+    i = 0
+    i2 = 1
+    assert ArmControl(i) != ArmControl(i2)
+
+    o = WristControl.ABDUCTION
+    o2 = from_dict({"wrist": 3})
+    assert o == o2
+
+    o = GripperControl.NEUTRAL
+    i = 0
+    assert int(o) == i
+
+    o = GripperControl.NEUTRAL
+    o2 = ArmControl.NEUTRAL
+    assert o != o2
+
+    o = GripperControl.NEUTRAL
+    o2 = ArmControl.NEUTRAL
+    assert int(o) == int(o2)
+
+    print("All test cases passed!")
