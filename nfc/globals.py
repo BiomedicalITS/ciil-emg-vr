@@ -9,7 +9,7 @@ try:
 except ImportError:
     pass
 
-DEVICE = "myo"  # "emager", "myo" or "bio"
+DEVICE = "bio"  # "emager", "myo" or "bio"
 LIBEMG_GESTURE_IDS = [1, 2, 3, 8, 26, 30]
 # LIBEMG_GESTURE_IDS = [1, 2, 3, 4, 5, 14, 15]  # + abduction + adduction
 

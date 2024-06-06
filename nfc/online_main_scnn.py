@@ -8,8 +8,6 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from libemg.data_handler import OnlineDataHandler
-
 import utils
 import globals as g
 
@@ -115,24 +113,24 @@ class OnlineDataWrapper:
         Returns None if no new data. Otherwise the data with shape (n_samples, *emg_shape)
         """
         odata = self.odh.get_data()
+        if len(odata) < sample_windows:
+            return None
+        self.odh.raw_data.reset_emg()
 
-        if len(odata) < self.emg_buffer_size:
-            return None
-        pos = np.argwhere((self.last_emg_sample == odata).all(axis=1))
-        if len(pos) == 0:
-            # if empty, means we must take the entire buffer
-            pos = 0
-        else:
-            pos = pos.item(0) + 1
-        if pos > (len(odata) - sample_windows):
-            return None
-        self.last_emg_sample = odata[-1:]  # do not move this line
         data = np.reshape(odata, (-1, *self.emg_shape))
         if process:
             data = utils.process_data(data)
-        return data[pos:]
+        return data
 
     def infer_from_data(self, data: np.ndarray):
+        """Infer embeddings from the given data.
+
+        Args:
+            data (np.ndarray): Data with shape (n_samples, *emg_shape)
+
+        Returns:
+            _type_: _description_
+        """
         if data is None:
             return None
         data = data.reshape(-1, 1, *self.emg_shape)
@@ -200,9 +198,6 @@ class OnlineDataWrapper:
 if __name__ == "__main__":
     import time
 
-    # from emager_py.utils import set_logging
-    # set_logging()
-
     odw = OnlineDataWrapper(
         g.DEVICE,
         g.EMG_SAMPLING_RATE,
@@ -218,8 +213,3 @@ if __name__ == "__main__":
     )
     # odw.visualize_emg()
     odw.run()
-    while True:
-        t0 = time.perf_counter()
-        print("*" * 80)
-        print(f"Time taken {time.perf_counter() - t0:.4f} s")
-        time.sleep(0.1)

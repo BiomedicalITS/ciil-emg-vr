@@ -334,21 +334,14 @@ class OnlineDataWrapper:
         Returns None if no new data. Otherwise the data with shape (n_samples, *emg_shape)
         """
         odata = self.odh.get_data()
-        if len(odata) < self.emg_buffer_size:
+        if len(odata) < sample_windows:
             return None
-        pos = np.argwhere((self.last_emg_sample == odata).all(axis=1))
-        if len(pos) == 0:
-            # if empty, means we must take the entire buffer
-            pos = 0
-        else:
-            pos = pos.item(0) + 1
-        if pos > (len(odata) - sample_windows):
-            return None
-        self.last_emg_sample = odata[-1:]  # MUST stay here
+        self.odh.raw_data.reset_emg()
+
         data = np.reshape(odata, (-1, *self.emg_shape))
         if process:
-            data = utils.process_data(data, self.device)
-        return data[pos:]
+            data = utils.process_data(data)
+        return data
 
     def predict_from_emg(self, data: np.ndarray):
         """

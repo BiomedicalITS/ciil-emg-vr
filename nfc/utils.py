@@ -1,4 +1,5 @@
 import os
+from typing import Iterable
 import numpy as np
 import json
 import logging as log
@@ -38,7 +39,7 @@ def get_filter(
     bandpass_freqs: float | list = [20, 350],
     notch_freq: int = 50,
 ):
-    if isinstance(bandpass_freqs, float) or isinstance(bandpass_freqs, int):
+    if not isinstance(bandpass_freqs, Iterable):
         bandpass_freqs = [bandpass_freqs]
 
     # Create some filters
@@ -94,9 +95,19 @@ def map_class_to_gestures(data_dir: str):
 
 
 def setup_streamer(device: str, notch_freq: int = 50):
-    # Setup the streamers
+    """Setup the streamer for the device
+
+    Args:
+        device (str): the sensor (myo, bio, emager)
+        notch_freq (int, optional): Notch filter frequency. Defaults to 50.
+
+    Raises:
+        ValueError: If the device is not recognized
+
+    Returns:
+        process handle
+    """
     if device == "myo":
-        # Create Myo Streamer
         return myo_streamer(filtered=False, imu=True)
     elif device == "bio":
         return sifibridge_streamer(
@@ -119,10 +130,20 @@ def get_online_data_handler(
     imu: bool = True,
     **kwargs,
 ) -> OnlineDataHandler:
-    if not isinstance(bandpass_freqs, list) or isinstance(bandpass_freqs, tuple):
-        bandpass_freqs = [bandpass_freqs]
+    """_summary_
 
-    # Create Online Data Handler - This listens for data
+    Args:
+        sampling_rate (float): EMG sampling rate
+        bandpass_freqs (float | list, optional). Defaults to [20, 350].
+        notch_freq (int, optional). Defaults to 50.
+        imu (bool, optional): Use IMU?. Defaults to True.
+        kwargs: passed to OnlineDataHandler creator
+
+    Returns:
+        OnlineDataHandler: _description_
+    """
+    if not isinstance(bandpass_freqs, Iterable):
+        bandpass_freqs = [bandpass_freqs]
     odh = OnlineDataHandler(imu_arr=imu, **kwargs)
     odh.install_filter(get_filter(sampling_rate, bandpass_freqs, notch_freq))
     odh.start_listening()

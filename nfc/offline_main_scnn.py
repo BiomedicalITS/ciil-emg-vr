@@ -109,9 +109,7 @@ def prepare_data(odh: OfflineDataHandler, ws, wi, batch_size, shuffle):
     return dataloader
 
 
-def train_model(
-    model: EmgSCNN, data_dir: str, train_reps: list, test_reps: list, device
-):
+def train_model(model: EmgSCNN, data_dir: str, train_reps: list, test_reps: list):
     if not isinstance(train_reps, list):
         train_reps = [train_reps]
     if not isinstance(test_reps, list):
@@ -176,7 +174,6 @@ def main(
     emg_notch_freq: int,
     gestures_list: list,
     model_out_path: str,
-    accelerator: str,
 ):
     if sample_data:
         utils.setup_streamer(device, emg_notch_freq)
@@ -207,7 +204,7 @@ def main(
             scnn=True,
         )
     )
-    model, embeddings = train_model(model, data_dir, train_reps, test_reps, accelerator)
+    model, embeddings = train_model(model, data_dir, train_reps, test_reps)
     torch.save(model.state_dict(), model_out_path)
     if embeddings is not None:
         np.save(model_out_path.replace(".pth", "") + "_embeddings.npy", embeddings)
@@ -217,7 +214,6 @@ if __name__ == "__main__":
     import globals as g
 
     SAMPLE_DATA = False
-    FINETUNE = False
 
     # y_true, y_pred = test_model(
     #     utils.get_model(
@@ -235,13 +231,12 @@ if __name__ == "__main__":
 
     main(
         sample_data=SAMPLE_DATA,
-        finetune=FINETUNE,
-        data_dir=g.FINETUNE_DATA_DIR if FINETUNE else g.TRAIN_DATA_DIR,
+        finetune=False,
+        data_dir=g.TRAIN_DATA_DIR,
         device=g.DEVICE,
         emg_shape=g.EMG_DATA_SHAPE,
         emg_fs=g.EMG_SAMPLING_RATE,
         emg_notch_freq=g.EMG_NOTCH_FREQ,
         gestures_list=g.LIBEMG_GESTURE_IDS,
         model_out_path=g.MODEL_PATH,
-        accelerator=g.ACCELERATOR,
     )

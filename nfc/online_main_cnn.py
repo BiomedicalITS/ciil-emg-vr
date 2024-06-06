@@ -1,20 +1,15 @@
 import socket
-import json
 import time
-import logging as log
 
 
 from emager_py import majority_vote
 from emager_py.data_processing import cosine_similarity
 
-from h11 import Data
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from scipy.special import softmax
-
-from libemg.data_handler import OnlineDataHandler
 
 import utils
 import globals as g
@@ -23,7 +18,7 @@ import globals as g
 class OnlineDataWrapper:
     def __init__(
         self,
-        device: str,
+        sensor: str,
         emg_fs: int,
         emg_shape: tuple,
         emg_buffer_size: int,
@@ -41,7 +36,7 @@ class OnlineDataWrapper:
         Starts listening to the data stream.
 
         Params:
-            - device: str, the sensor used. "emager", "myo" or "bio"
+            - sensor: str, the sensor used. "emager", "myo" or "bio"
             - emg_fs: int, the EMG sampling rate
             - emg_shape: tuple, the shape of the EMG data
             - emg_buffer_size: int, the size of the EMG buffer to keep in memory
@@ -51,8 +46,8 @@ class OnlineDataWrapper:
             - accelerator: str, the device to run the model on ("cuda", "mps", "cpu", etc)
         """
 
-        self.device = device
-        utils.setup_streamer(self.device)
+        self.sensor = sensor
+        utils.setup_streamer(self.sensor)
         self.odh = utils.get_online_data_handler(
             emg_fs, notch_freq=50, imu=False, max_buffer=emg_buffer_size
         )
@@ -79,12 +74,6 @@ class OnlineDataWrapper:
 
         self.voter = majority_vote.MajorityVote(emg_maj_vote_ms * emg_fs // 1000)
         self.gesture_dict = utils.map_class_to_gestures(g.TRAIN_DATA_DIR)
-
-    def start_listening(self):
-        self.odh.start_listening()
-
-    def stop_listening(self):
-        self.odh.stop_listening()
 
     def run(self):
         while True:
@@ -125,22 +114,14 @@ class OnlineDataWrapper:
         Returns None if no new data. Otherwise the data with shape (n_samples, *emg_shape)
         """
         odata = self.odh.get_data()
+        if len(odata) < sample_windows:
+            return None
+        self.odh.raw_data.reset_emg()
 
-        if len(odata) < self.emg_buffer_size:
-            return None
-        pos = np.argwhere((self.last_emg_sample == odata).all(axis=1))
-        if len(pos) == 0:
-            # if empty, means we must take the entire buffer
-            pos = 0
-        else:
-            pos = pos.item(0) + 1
-        if pos > (len(odata) - sample_windows):
-            return None
-        self.last_emg_sample = odata[-1:]  # do not move this line
         data = np.reshape(odata, (-1, *self.emg_shape))
         if process:
             data = utils.process_data(data)
-        return data[pos:]
+        return data
 
     def predict_from_emg(self, data: np.ndarray):
         """
