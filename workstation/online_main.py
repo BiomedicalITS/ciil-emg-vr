@@ -65,6 +65,9 @@ class OnlineDataWrapper:
 
         self.device = device
         utils.setup_streamer(self.device)
+        self.odh = utils.get_online_data_handler(
+            emg_fs, notch_freq=50, imu=True, max_buffer=emg_buffer_size
+        )
 
         self.pl_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.pl_socket.bind(("127.0.0.1", pseudo_labels_port))
@@ -72,10 +75,6 @@ class OnlineDataWrapper:
 
         self.robot_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.robot_sock = (robot_ip, robot_port)
-
-        self.odh = OnlineDataHandler(
-            emg_arr=True, imu_arr=True, max_buffer=emg_buffer_size
-        )
 
         self.accelerator = accelerator
         self.model = utils.get_model(self.device, emg_shape, num_gestures, True)
@@ -96,8 +95,6 @@ class OnlineDataWrapper:
         self.voter = majority_vote.MajorityVote(emg_maj_vote_ms * emg_fs // 1000)
         self.gesture_dict = utils.map_class_to_gestures(g.TRAIN_DATA_DIR)
 
-        self.start_listening()
-
         # Everything else is handled by EMG
         self.arm_movement_list = s.ArmControl._member_names_
         self.arm_calib_data = np.zeros((len(self.arm_movement_list), 4))
@@ -111,12 +108,6 @@ class OnlineDataWrapper:
         if calibrate_imu:
             self.calibrate_imu()
             self.save_calibration_data()
-
-    def start_listening(self):
-        self.odh.start_listening()
-
-    def stop_listening(self):
-        self.odh.stop_listening()
 
     def calibrate_imu(self, n_samples=100):
         """
@@ -343,21 +334,14 @@ class OnlineDataWrapper:
         Returns None if no new data. Otherwise the data with shape (n_samples, *emg_shape)
         """
         odata = self.odh.get_data()
-        if len(odata) < self.emg_buffer_size:
+        if len(odata) < sample_windows:
             return None
-        pos = np.argwhere((self.last_emg_sample == odata).all(axis=1))
-        if len(pos) == 0:
-            # if empty, means we must take the entire buffer
-            pos = 0
-        else:
-            pos = pos.item(0) + 1
-        if pos > (len(odata) - sample_windows):
-            return None
-        self.last_emg_sample = odata[-1:]  # MUST stay here
+        self.odh.raw_data.reset_emg()
+
         data = np.reshape(odata, (-1, *self.emg_shape))
         if process:
-            data = utils.process_data(data, self.device)
-        return data[pos:]
+            data = utils.process_data(data)
+        return data
 
     def predict_from_emg(self, data: np.ndarray):
         """
