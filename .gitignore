@@ -1,5 +1,6 @@
 .venv
 data
+data_nfc
 lightning_logs
 sifi_bridge*
 .DS_Store
