@@ -66,7 +66,7 @@ class OnlineDataWrapper:
         self.device = device
         utils.setup_streamer(self.device)
         self.odh = utils.get_online_data_handler(
-            emg_fs, notch_freq=50, imu=True, max_buffer=emg_buffer_size
+            emg_fs, notch_freq=50, max_buffer=emg_buffer_size
         )
 
         self.pl_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

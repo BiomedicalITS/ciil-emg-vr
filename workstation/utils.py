@@ -118,7 +118,7 @@ def get_online_data_handler(
     return odh
 
 
-def process_data(data: np.ndarray, device: str):
+def process_data(data: np.ndarray):
     # Assumes data is prefiltered
 
     # rectify
