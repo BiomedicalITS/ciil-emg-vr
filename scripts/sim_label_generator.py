@@ -4,12 +4,13 @@ import random
 import datetime
 
 
-from globals import PEUDO_LABELS_PORT
+from main.globals import PEUDO_LABELS_PORT
 
 if __name__ == "__main__":
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         while True:
             label = random.choice([2, 3])
+            label = 0
             print(
                 f"({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}) Sent label {label}"
             )

@@ -1,0 +1,28 @@
+[project]
+name = "nfc-emg"
+version = "0.1.0"
+description = "Self-supervised Learning for EMG Gesture Recognition."
+authors = [
+    { name = "Gabriel Gagne", email = "gabriel.gagne.3@ulaval.ca" },
+    { name = "Anisha Azad" },
+]
+dependencies = [
+    "lightning>=2.2.5",
+    "requests>=2.32.3",
+    "matplotlib>=3.9.0",
+    "bleak>=0.20.2",
+    "pyquaternion>=0.9.9",
+    "tqdm>=4.66.4",
+    "emager-py @ git+https://github.com/SBIOML/emager-py@main",
+    "libemg @ git+https://github.com/gabrielpgagne/libemg@main",
+]
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "MIT" }
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[tool.pdm]
+distribution = true

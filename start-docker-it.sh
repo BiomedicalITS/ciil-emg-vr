@@ -1,1 +1,0 @@
-docker run --rm -it --name ur5e ros-noetic/ur5e-move-group bash

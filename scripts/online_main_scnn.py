@@ -1,7 +1,6 @@
 import socket
 import time
 
-
 from emager_py import majority_vote
 from emager_py.data_processing import cosine_similarity
 
@@ -9,16 +8,14 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from scipy.special import softmax
-
-import utils
-import globals as g
+from nfc_emg import utils
+import configs as g
 
 
 class OnlineDataWrapper:
     def __init__(
         self,
-        sensor: str,
+        device: str,
         emg_fs: int,
         emg_shape: tuple,
         emg_buffer_size: int,
@@ -36,7 +33,7 @@ class OnlineDataWrapper:
         Starts listening to the data stream.
 
         Params:
-            - sensor: str, the sensor used. "emager", "myo" or "bio"
+            - device: str, the sensor used. "emager", "myo" or "bio"
             - emg_fs: int, the EMG sampling rate
             - emg_shape: tuple, the shape of the EMG data
             - emg_buffer_size: int, the size of the EMG buffer to keep in memory
@@ -46,8 +43,8 @@ class OnlineDataWrapper:
             - accelerator: str, the device to run the model on ("cuda", "mps", "cpu", etc)
         """
 
-        self.sensor = sensor
-        utils.setup_streamer(self.sensor)
+        self.device = device
+        utils.setup_streamer(self.device)
         self.odh = utils.get_online_data_handler(
             emg_fs, notch_freq=50, imu=False, max_buffer=emg_buffer_size
         )
@@ -61,19 +58,22 @@ class OnlineDataWrapper:
 
         self.accelerator = accelerator
 
-        self.model = utils.get_model(g.MODEL_PATH, emg_shape, num_gestures, True)
+        self.model = utils.get_model(g.MODEL_PATH, emg_shape, num_gestures, True, True)
         self.model.to(self.accelerator)
         self.model.eval()
+        self.model.embeddings = self.model.embeddings / np.linalg.norm(
+            self.model.embeddings, axis=1, keepdims=True
+        )
         self.optimizer = self.model.configure_optimizers()
 
         self.emg_shape = emg_shape
         self.emg_buffer_size = emg_buffer_size
         self.emg_window_size = emg_window_size_ms * emg_fs // 1000
         self.last_emg_sample = np.zeros((1, *self.emg_shape))
-        self.emg_buffer = np.zeros((emg_buffer_size, *self.emg_shape))
+        self.emg_buffer = np.zeros((emg_buffer_size, *self.emg_shape), np.float32)
 
         self.voter = majority_vote.MajorityVote(emg_maj_vote_ms * emg_fs // 1000)
-        self.gesture_dict = utils.map_class_to_gestures(g.TRAIN_DATA_DIR)
+        self.gesture_dict = utils.map_cid_to_name(g.TRAIN_DATA_DIR)
 
     def run(self):
         while True:
@@ -91,13 +91,12 @@ class OnlineDataWrapper:
 
             labels = self.get_live_labels()
             if labels is not None:
-                losses = self.finetune_model(
-                    self.emg_buffer.reshape((-1, 1, *self.emg_shape)),
-                    np.repeat(labels, self.emg_buffer_size),
-                )
-                print(
-                    f"Finetuned on label {labels.item()}. Average loss: {sum(losses)/len(losses)}"
-                )
+                embeds = self.infer_from_data(self.emg_buffer)
+                embeds /= np.linalg.norm(embeds, axis=1, keepdims=True)
+                centroid = np.mean(embeds, axis=0)
+                new_centroid = (centroid + self.model.embeddings[labels]) / 2
+                self.model.embeddings[labels] = new_centroid
+                print(f"Calibrated on label {labels.item()}.")
 
             if preds is not None:
                 self.voter.extend(preds)
@@ -123,6 +122,22 @@ class OnlineDataWrapper:
             data = utils.process_data(data)
         return data
 
+    def infer_from_data(self, data: np.ndarray):
+        """Infer embeddings from the given data.
+
+        Args:
+            data (np.ndarray): Data with shape (n_samples, *emg_shape)
+
+        Returns:
+            _type_: _description_
+        """
+        if data is None:
+            return None
+        data = data.reshape(-1, 1, *self.emg_shape)
+        samples = torch.from_numpy(data).to(self.accelerator)
+        embeddings = self.model(samples).cpu().detach().numpy()
+        return embeddings
+
     def predict_from_emg(self, data: np.ndarray):
         """
         Run the model on the given data.
@@ -132,15 +147,9 @@ class OnlineDataWrapper:
         """
         if data is None:
             return None
-        data = data.reshape(-1, 1, *self.emg_shape)
-        samples = torch.from_numpy(data).to(self.accelerator)
-        pred = self.model(samples).cpu().detach().numpy()
-        pred = softmax(pred, axis=1)
-        preds = np.mean(pred, axis=0)
-        vals = [f"{p:.3f}" for p in preds]
-        print(f"Predictions:\n {vals}")
-        # pred[pred < 0.7] = 0
-        return np.argmax(pred, axis=1)
+        embeddings = self.infer_from_data(data)
+        y = cosine_similarity(embeddings, self.model.embeddings, False)
+        return np.argmax(y, axis=1)
 
     def get_live_labels(self):
         """
@@ -189,9 +198,6 @@ class OnlineDataWrapper:
 if __name__ == "__main__":
     import time
 
-    # from emager_py.utils import set_logging
-    # set_logging()
-
     odw = OnlineDataWrapper(
         g.DEVICE,
         g.EMG_SAMPLING_RATE,
@@ -207,8 +213,3 @@ if __name__ == "__main__":
     )
     # odw.visualize_emg()
     odw.run()
-    while True:
-        t0 = time.perf_counter()
-        print("*" * 80)
-        print(f"Time taken {time.perf_counter() - t0:.4f} s")
-        time.sleep(0.1)

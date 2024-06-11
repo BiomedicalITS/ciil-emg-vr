@@ -1,8 +1,4 @@
-import vpython as vp
 import logging as log
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
-from collections import deque
 import socket
 import json
 from tqdm import tqdm
@@ -16,19 +12,8 @@ import numpy as np
 import torch
 from scipy.special import softmax
 
-from libemg.data_handler import OnlineDataHandler
-
-import utils
-import globals as g
-import schemas as s
-
-
-def get_attitude_from_quats(qw, qx, qy, qz):
-    yaw = np.arctan2(2.0 * (qy * qz + qw * qx), qw * qw - qx * qx - qy * qy + qz * qz)
-    aasin = qx * qz - qw * qy
-    pitch = np.arcsin(-2.0 * aasin)
-    roll = np.arctan2(2.0 * (qx * qy + qw * qz), qw * qw + qx * qx - qy * qy - qz * qz)
-    return pitch, yaw, roll
+from nfc_emg import utils, schemas as s
+import configs as g
 
 
 class OnlineDataWrapper:
@@ -42,9 +27,9 @@ class OnlineDataWrapper:
         emg_maj_vote_ms: int,
         num_gestures: int,
         accelerator: str,
-        pseudo_labels_port: int = 5111,
-        robot_ip: str = "nvidia",
-        robot_port: int = 5112,
+        pseudo_labels_port: int,
+        preds_ip: str,
+        preds_port: int,
         calibrate_imu: bool = True,
     ):
         """
@@ -74,7 +59,7 @@ class OnlineDataWrapper:
         self.pl_socket.setblocking(False)
 
         self.robot_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.robot_sock = (robot_ip, robot_port)
+        self.robot_sock = (preds_ip, preds_port)
 
         self.accelerator = accelerator
         self.model = utils.get_model(self.device, emg_shape, num_gestures, True)
@@ -93,7 +78,7 @@ class OnlineDataWrapper:
         self.labels = np.zeros((0,))
 
         self.voter = majority_vote.MajorityVote(emg_maj_vote_ms * emg_fs // 1000)
-        self.gesture_dict = utils.map_class_to_gestures(g.TRAIN_DATA_DIR)
+        self.gesture_dict = utils.map_cid_to_name(g.TRAIN_DATA_DIR)
 
         # Everything else is handled by EMG
         self.arm_movement_list = s.ArmControl._member_names_
@@ -493,60 +478,10 @@ class OnlineDataWrapper:
         self.odh.visualize()
 
 
-def plot_quaternions_live(odh: OnlineDataHandler):
-    # TODO find a better way to watch for new data
-    # quat, acc, gyro = 10 dimensions
-    global sample_buf, last_shape
-    sample_buf = np.zeros((250, 4))
-    x_axis = np.arange(len(sample_buf))
-
-    last_shape = (0, 10)
-
-    def update(frame):
-        global last_shape, sample_buf
-
-        odata = odh.get_imu_data()
-        if odata.shape == last_shape or len(odata) == 0:
-            return
-        n_new = len(odata) - last_shape[0]
-        last_shape = odata.shape
-        new_data = odata[-n_new:]  # new data
-
-        quats = new_data[0, :4] / 16000.0
-        sample_buf = np.roll(sample_buf, -n_new, axis=0)
-        sample_buf[-n_new:] = quats
-
-        # https://stackoverflow.com/questions/54214698/quaternion-to-yaw-pitch-roll#:~:text=Having%20given%20a%20Quaternion%20q,*qy%20%2D%20qz*qz)%3B
-        pitch, yaw, roll = get_attitude_from_quats(*quats)
-
-        print("New data len:", len(new_data))
-        print(f"Yaw: {yaw:.3f}, Pitch: {pitch:.3f}, Roll: {roll:.3f}")
-
-        plt.cla()
-
-        plt.plot(x_axis, sample_buf[:, 0])
-        plt.plot(x_axis, sample_buf[:, 1])
-        plt.plot(x_axis, sample_buf[:, 2])
-        plt.plot(x_axis, sample_buf[:, 3])
-
-        plt.legend(["w", "x", "y", "z"], loc="upper left")
-        plt.ylim(-1.05, 1.05)
-        plt.xlim(0, len(sample_buf))
-        plt.grid(True, "both", "both")
-
-    plt.figure()
-    FuncAnimation(plt.gcf(), update, interval=30)
-    plt.tight_layout()
-    plt.show()
-
-
 if __name__ == "__main__":
     from emager_py.utils import set_logging
     import time
 
-    """
-    Myo: USB port towards the user: Pitch inverted, Yaw and roll swapped
-    """
     set_logging()
 
     odw = OnlineDataWrapper(
@@ -559,8 +494,8 @@ if __name__ == "__main__":
         len(g.LIBEMG_GESTURE_IDS),
         g.ACCELERATOR,
         g.PEUDO_LABELS_PORT,
-        g.ROBOT_IP,
-        g.ROBOT_PORT,
+        g.PREDS_IP,
+        g.PREDS_PORT,
         # False,
     )
     # odw.visualize_emg()
