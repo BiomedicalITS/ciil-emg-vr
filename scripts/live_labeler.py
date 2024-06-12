@@ -2,7 +2,7 @@ import sys
 import socket
 import datetime
 
-from globals import PEUDO_LABELS_PORT
+from configs import PEUDO_LABELS_PORT
 
 if __name__ == "__main__":
     label = 3

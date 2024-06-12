@@ -18,23 +18,23 @@ __GESTURES_DIR = __BASE_DIR + "gestures/"
 def set_paths(ext: str):
     """Set experiment paths
 
-    Args:
-        ext (str): _description_
+    Returns train data dir, finetune data dir, model path, gestures dir
     """
-    global __BASE_DIR, __TRAIN_DATA_DIR, __FINETUNE_DATA_DIR, __MODEL_PATH
+    global __BASE_DIR, __TRAIN_DATA_DIR, __FINETUNE_DATA_DIR, __MODEL_PATH, __GESTURES_DIR
     __BASE_DIR = f"data/{ext}/"
     __TRAIN_DATA_DIR = __BASE_DIR + "train/"
     __FINETUNE_DATA_DIR = __BASE_DIR + "finetune/"
     __MODEL_PATH = __BASE_DIR + "model.pth"
     __GESTURES_DIR = __BASE_DIR + "gestures/"
+    return get_paths()
 
 
 def get_paths():
     """Get paths
 
-    Returns:
-        train data dir, finetune data dir, model path, gestures dir
+    Returns train data dir, finetune data dir, model path, gestures dir
     """
+    global __BASE_DIR, __TRAIN_DATA_DIR, __FINETUNE_DATA_DIR, __MODEL_PATH, __GESTURES_DIR
     return __TRAIN_DATA_DIR, __FINETUNE_DATA_DIR, __MODEL_PATH, __GESTURES_DIR
 
 

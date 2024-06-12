@@ -5,9 +5,9 @@ from libemg.streamers import sifibridge_streamer, myo_streamer, emager_streamer
 
 
 class EmgSensorType(Enum):
-    BioArmband = 0
-    MyoArmband = 1
-    Emager = 2
+    BioArmband = "bio"
+    MyoArmband = "myo"
+    Emager = "emager"
 
 
 class EmgSensor:
@@ -39,7 +39,7 @@ class EmgSensor:
         self.set_majority_vote(majority_vote_ms)
 
     def get_name(self):
-        return self.sensor_type.name
+        return self.sensor_type.value
 
     def start_streamer(self):
         """Setup the streamer for the device

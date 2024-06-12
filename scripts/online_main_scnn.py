@@ -8,20 +8,20 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from nfc_emg import utils
+from nfc_emg import utils, models, datasets
+from nfc_emg.sensors import EmgSensor, EmgSensorType
+from nfc_emg.models import EmgSCNN
 import configs as g
 
 
 class OnlineDataWrapper:
     def __init__(
         self,
-        device: str,
-        emg_fs: int,
-        emg_shape: tuple,
-        emg_buffer_size: int,
-        emg_window_size_ms: int,
-        emg_maj_vote_ms: int,
-        num_gestures: int,
+        sensor: EmgSensor,
+        model: EmgSCNN,
+        gestures_id_list: list,
+        gestures_dir: str,
+        dataset_dir: str,
         accelerator: str,
         pseudo_labels_port: int = 5111,
         preds_ip: str = "127.0.0.1",
@@ -33,20 +33,20 @@ class OnlineDataWrapper:
         Starts listening to the data stream.
 
         Params:
-            - device: str, the sensor used. "emager", "myo" or "bio"
-            - emg_fs: int, the EMG sampling rate
-            - emg_shape: tuple, the shape of the EMG data
-            - emg_buffer_size: int, the size of the EMG buffer to keep in memory
-            - emg_window_size: int, minimum size of new EMG data to process in ms
-            - emg_maj_vote_ms: int, the majority vote window in ms
-            - num_gestures: int, the number of gestures to classify
+            - gestures_id_list: list of LibEMG Gestures IDs to classify
             - accelerator: str, the device to run the model on ("cuda", "mps", "cpu", etc)
         """
 
-        self.device = device
-        utils.setup_streamer(self.device)
+        self.sensor = sensor
+
+        self.sensor.start_streamer()
+
         self.odh = utils.get_online_data_handler(
-            emg_fs, notch_freq=50, imu=False, max_buffer=emg_buffer_size
+            sensor.fs,
+            sensor.bandpass_freqs,
+            sensor.notch_freq,
+            True,
+            max_buffer=sensor.fs,
         )
 
         self.pl_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -58,29 +58,29 @@ class OnlineDataWrapper:
 
         self.accelerator = accelerator
 
-        self.model = utils.get_model(g.MODEL_PATH, emg_shape, num_gestures, True, True)
+        self.model = model
         self.model.to(self.accelerator)
         self.model.eval()
-        self.model.embeddings = self.model.embeddings / np.linalg.norm(
-            self.model.embeddings, axis=1, keepdims=True
+        # print("Classifier classes:", self.model.classifier.classes_)
+
+        self.emg_buffer_size = self.sensor.fs
+        self.emg_buffer = np.zeros(
+            (self.emg_buffer_size, *self.sensor.emg_shape), np.float32
         )
-        self.optimizer = self.model.configure_optimizers()
 
-        self.emg_shape = emg_shape
-        self.emg_buffer_size = emg_buffer_size
-        self.emg_window_size = emg_window_size_ms * emg_fs // 1000
-        self.last_emg_sample = np.zeros((1, *self.emg_shape))
-        self.emg_buffer = np.zeros((emg_buffer_size, *self.emg_shape), np.float32)
+        self.voter = majority_vote.MajorityVote(self.sensor.maj_vote_n)
 
-        self.voter = majority_vote.MajorityVote(emg_maj_vote_ms * emg_fs // 1000)
-        self.gesture_dict = utils.map_cid_to_name(g.TRAIN_DATA_DIR)
+        # Convert GIDs to CIDs
+        self.class_names = [
+            utils.map_gid_to_name(gestures_dir)[gid] for gid in gestures_id_list
+        ]
 
     def run(self):
         while True:
             t0 = time.perf_counter()
 
-            emg_data = self.get_emg_data(True, self.emg_window_size)
-            preds = self.predict_from_emg(emg_data)
+            emg_data = self.get_emg_data(True, self.sensor.moving_avg_n)
+            preds = self.predict(emg_data)
 
             if emg_data is not None:
                 new_data = emg_data
@@ -91,11 +91,9 @@ class OnlineDataWrapper:
 
             labels = self.get_live_labels()
             if labels is not None:
-                embeds = self.infer_from_data(self.emg_buffer)
-                embeds /= np.linalg.norm(embeds, axis=1, keepdims=True)
-                centroid = np.mean(embeds, axis=0)
-                new_centroid = (centroid + self.model.embeddings[labels]) / 2
-                self.model.embeddings[labels] = new_centroid
+                self.model.fit_classifier(
+                    self.emg_buffer, np.repeat(labels, len(self.emg_buffer))
+                )
                 print(f"Calibrated on label {labels.item()}.")
 
             if preds is not None:
@@ -104,7 +102,7 @@ class OnlineDataWrapper:
                 self.send_pred(maj_vote)
                 print("*" * 80)
                 print("EMG length:", len(emg_data))
-                print(f"Gesture {self.gesture_dict[maj_vote]} ({maj_vote})")
+                print(f"Gesture {self.class_names[maj_vote]} ({maj_vote})")
                 print(f"Time taken {time.perf_counter() - t0:.4f} s")
 
     def get_emg_data(self, process: bool, sample_windows: int):
@@ -117,39 +115,23 @@ class OnlineDataWrapper:
             return None
         self.odh.raw_data.reset_emg()
 
-        data = np.reshape(odata, (-1, *self.emg_shape))
+        data = np.reshape(odata, (-1, *self.sensor.emg_shape))
         if process:
-            data = utils.process_data(data)
+            data = datasets.process_data(data, self.sensor)
         return data
 
-    def infer_from_data(self, data: np.ndarray):
+    def predict(self, data: np.ndarray):
         """Infer embeddings from the given data.
 
         Args:
-            data (np.ndarray): Data with shape (n_samples, *emg_shape)
+            data (np.ndarray): Data with shape (n_samples, H, W)
 
         Returns:
             _type_: _description_
         """
         if data is None:
             return None
-        data = data.reshape(-1, 1, *self.emg_shape)
-        samples = torch.from_numpy(data).to(self.accelerator)
-        embeddings = self.model(samples).cpu().detach().numpy()
-        return embeddings
-
-    def predict_from_emg(self, data: np.ndarray):
-        """
-        Run the model on the given data.
-
-        Returns None if data is empty. Else, an array of shape [n_samples,]
-        TODO show confidence%
-        """
-        if data is None:
-            return None
-        embeddings = self.infer_from_data(data)
-        y = cosine_similarity(embeddings, self.model.embeddings, False)
-        return np.argmax(y, axis=1)
+        return model.predict(data)
 
     def get_live_labels(self):
         """
@@ -198,14 +180,16 @@ class OnlineDataWrapper:
 if __name__ == "__main__":
     import time
 
+    sensor = EmgSensor(EmgSensorType.MyoArmband)
+    dataset_dir, _, model_path, gestures_dir = utils.set_paths(sensor.get_name())
+    model = models.get_model_scnn(model_path, sensor.emg_shape)
+
     odw = OnlineDataWrapper(
-        g.DEVICE,
-        g.EMG_SAMPLING_RATE,
-        g.EMG_DATA_SHAPE,
-        g.EMG_SAMPLING_RATE,
-        25,
-        g.EMG_MAJ_VOTE_MS,
-        len(g.LIBEMG_GESTURE_IDS),
+        sensor,
+        model,
+        [1, 2, 3, 26, 30],
+        gestures_dir,
+        dataset_dir,
         g.ACCELERATOR,
         g.PEUDO_LABELS_PORT,
         g.PREDS_IP,

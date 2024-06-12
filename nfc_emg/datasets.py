@@ -10,7 +10,7 @@ from emager_py import data_processing as dp
 from nfc_emg.sensors import EmgSensor
 
 
-def process_data(data: np.ndarray, device: EmgSensor):
+def process_data(data: np.ndarray, sensor: EmgSensor):
     """Process EMG data.
 
     Args:
@@ -20,8 +20,8 @@ def process_data(data: np.ndarray, device: EmgSensor):
     Returns:
         Processed data with shape (n_samples, 1, *emg_shape)
     """
-    data = np.abs(device.reorder(data)) * device.emg_factor
-    data = moving_average(data, device.moving_avg_n)
+    data = np.abs(sensor.reorder(data)) * sensor.emg_factor
+    data = moving_average(data, sensor.moving_avg_n)
     return data.astype(np.float32)
 
 

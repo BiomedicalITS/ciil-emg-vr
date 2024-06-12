@@ -1,4 +1,3 @@
-import logging as log
 from typing import Iterable
 
 import numpy as np
@@ -8,7 +7,7 @@ import torch.nn.functional as F
 import lightning as L
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 
-from sklearn.metrics import accuracy_score, euclidean_distances
+from sklearn.metrics import accuracy_score
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.base import BaseEstimator
 from sklearn.pipeline import make_pipeline
@@ -241,9 +240,24 @@ class EmgSCNN(L.LightningModule):
         self.classifier = make_pipeline(*classifier)
 
     def fit_classifier(self, x, y):
-        self.classifier.fit(x, y)
+        """Fit the classifier on the given data.
+
+        Args:
+            x (_type_): numpy data that is passed through the CNN before fitting
+            y (_type_): labels
+        """
+        if not isinstance(x, torch.Tensor):
+            x = torch.from_numpy(x).to(self.device)
+        if len(x.shape) == 3:
+            x = x[:, np.newaxis, :, :]
+        embeddings = self(x).cpu().detach().numpy()
+        self.classifier.fit(embeddings, y)
 
     def predict(self, x):
+        if not isinstance(x, torch.Tensor):
+            x = torch.from_numpy(x).to(self.device)
+        if len(x.shape) == 3:
+            x = x[:, np.newaxis, :, :]
         embeddings = self(x).cpu().detach().numpy()
         return self.classifier.predict(embeddings)
 
@@ -258,7 +272,7 @@ class CosineSimilarity(BaseEstimator):
         self.features = None
         self.n_samples = 0
 
-    def __cosine_similarity(self, X, labels: bool = True):
+    def __cosine_similarity(self, X, labels: bool):
         dists = cosine_similarity(X, self.features)
         if labels:
             return np.argmax(dists, axis=1)
@@ -283,14 +297,14 @@ class CosineSimilarity(BaseEstimator):
         return self.__cosine_similarity(X, True)
 
     def transform(self, X):
-        return self.__similarity_fn(X, False)
+        return self.__cosine_similarity(X, False)
 
 
 def get_model(model_path: str, emg_shape: tuple, num_classes: int, finetune: bool):
     """
     Load a model checkpoint from path and return it
     """
-    log.info(f"Loading model from {model_path}")
+    print(f"Loading model from {model_path}")
     chkpt = torch.load(model_path)
     n_classes = chkpt["classifier.weight"].shape[0]
     model = EmgCNN(emg_shape, n_classes)
@@ -299,14 +313,28 @@ def get_model(model_path: str, emg_shape: tuple, num_classes: int, finetune: boo
     return model.eval()
 
 
+def save_model_scnn(model: EmgSCNN, out_path: str):
+    print(
+        f"Saving SCNN model to {out_path}. Classifier is {model.classifier.steps[-1][1].__class__.__name__}"
+    )
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "classifier": model.classifier,
+        },
+        out_path,
+    )
+
+
 def get_model_scnn(model_path: str, emg_shape: tuple):
     """
     Load an SCNN model checkpoint and return it
     """
-    log.info(f"Loading SCNN model from {model_path}")
+    print(f"Loading SCNN model from {model_path}")
     chkpt = torch.load(model_path)
     model = EmgSCNN(emg_shape)
-    model.load_state_dict(chkpt)
+    model.load_state_dict(chkpt["model_state_dict"])
+    model.attach_classifier(chkpt["classifier"])
     return model.eval()
 
 

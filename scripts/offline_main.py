@@ -16,10 +16,7 @@ def main_scnn(
     if sample_data:
         sensor.start_streamer()
         odh = utils.get_online_data_handler(
-            sensor.fs,
-            bandpass_freqs=sensor.bandpass_freqs,
-            notch_freq=sensor.notch_freq,
-            imu=False,
+            sensor.fs, sensor.bandpass_freqs, sensor.notch_freq, False
         )
         utils.screen_guided_training(
             odh, gestures_list, gestures_img_dir, 5, 5, out_data_dir
@@ -46,7 +43,7 @@ def main_scnn(
         test_reps,
         2000,
     )
-    torch.save(model.state_dict(), model_out_path)
+    models.save_model_scnn(model, model_out_path)
     return model
 
 
@@ -64,11 +61,11 @@ def main_cnn(
     model_out_path: str,
 ):
     if sample_data:
-        utils.setup_streamer(device, emg_notch_freq)
+        sensor.start_streamer()
         odh = utils.get_online_data_handler(
             emg_fs, notch_freq=emg_notch_freq, imu=False
         )
-        datasets.screen_guided_training(
+        utils.screen_guided_training(
             odh, gestures_list, gestures_img_dir, 1 if finetune else 5, 5, out_data_dir
         )
 
@@ -109,21 +106,21 @@ if __name__ == "__main__":
     from sklearn.metrics import ConfusionMatrixDisplay
 
     from emager_py import majority_vote as mv
+    from emager_py import utils as eutils
 
-    utils.set_paths(g.DEVICE)
+    eutils.set_logging()
+    utils.set_paths("myo")
     train_dir, _, model_path, gestures_dir = utils.get_paths()
 
     SAMPLE_DATA = False
     FINETUNE = False
+
     TRAIN_GESTURE_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 26, 30]  # initial training
     # TEST_GESTURE_IDS = [1, 2, 3, 14, 26, 30]
-    TEST_GESTURE_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 30]
-    test_gesture_names = [
-        utils.map_gid_to_name(gestures_dir)[i] for i in TEST_GESTURE_IDS
-    ]
+    TEST_GESTURE_IDS = [1, 2, 3, 26, 30]
 
     sensor = EmgSensor(EmgSensorType.MyoArmband)
-    sensor.set_majority_vote(100)
+    sensor.set_majority_vote(200)
 
     model = models.get_model_scnn(model_path, sensor.emg_shape)
     # model = main_scnn(
@@ -147,36 +144,25 @@ if __name__ == "__main__":
     )
     calib_odh = odh.isolate_data("reps", all_reps[-2:-1])
     calib_data, calib_labels = datasets.prepare_data(calib_odh, sensor, 1, 1)
-    calib_data = torch.from_numpy(calib_data).to(g.ACCELERATOR)
-    calib_embeds = model(calib_data).detach().cpu().numpy()
 
     test_odh = odh.isolate_data("reps", all_reps[-1:])
     test_data, test_labels = datasets.prepare_data(test_odh, sensor, 1, 1)
 
-    classifier = LinearDiscriminantAnalysis()
+    # classifier = LinearDiscriminantAnalysis()
+    classifier = CosineSimilarity()
     model.attach_classifier(classifier)
-    model.fit_classifier(calib_embeds, calib_labels)
+    model.fit_classifier(calib_data, calib_labels)
     preds = model.predict(torch.from_numpy(test_data).to(g.ACCELERATOR))
     preds_maj = mv.majority_vote(preds, sensor.maj_vote_n)
     print("*" * 80)
     print(accuracy_score(test_labels, preds))
     print(accuracy_score(test_labels, preds_maj))
-    fig = ConfusionMatrixDisplay.from_predictions(
-        test_labels, preds_maj, display_labels=test_gesture_names, normalize="true"
-    )
-    plt.show()
-    # test
+    models.save_model_scnn(model, model_path)
 
-    # main_cnn(
-    #     device=g.DEVICE,
-    #     sample_data=SAMPLE_DATA,
-    #     gestures_list=g.LIBEMG_GESTURE_IDS,
-    #     gestures_img_dir=g.LIBEMG_GESTURES_DIR,
-    #     out_data_dir=g.TRAIN_DATA_DIR,
-    #     finetune=FINETUNE,
-    #     emg_shape=g.EMG_DATA_SHAPE,
-    #     emg_fs=g.EMG_SAMPLING_RATE,
-    #     emg_notch_freq=g.EMG_NOTCH_FREQ,
-    #     emg_moving_avg_n=g.EMG_RUNNING_MEAN_LEN,
-    #     model_out_path=g.MODEL_PATH,
+    # test_gesture_names = [
+    #     utils.map_gid_to_name(gestures_dir)[i] for i in TEST_GESTURE_IDS
+    # ]
+    # fig = ConfusionMatrixDisplay.from_predictions(
+    #     test_labels, preds_maj, display_labels=test_gesture_names, normalize="true"
     # )
+    # plt.show()
