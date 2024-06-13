@@ -328,7 +328,7 @@ def get_model_scnn(model_path: str, emg_shape: tuple, accelerator: str = "cpu"):
     """
     print(f"Loading SCNN model from {model_path}")
     chkpt = torch.load(model_path)
-    model = EmgSCNN(emg_shape)
+    model = EmgSCNN(emg_shape).to(accelerator)
     model.load_state_dict(chkpt["model_state_dict"])
     return EmgSCNNWrapper(model, chkpt["classifier"])
 
