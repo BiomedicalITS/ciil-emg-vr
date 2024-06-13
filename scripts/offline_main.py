@@ -7,12 +7,12 @@ from libemg.emg_classifier import EMGClassifier
 from libemg.offline_metrics import OfflineMetrics
 
 from nfc_emg import utils, datasets, models
-from nfc_emg.models import EmgSCNN, EmgCNN
+from nfc_emg.models import EmgSCNN, EmgCNN, EmgSCNNWrapper
 from nfc_emg.sensors import EmgSensor, EmgSensorType
 from nfc_emg.paths import NfcPaths
 
 
-def train_scnn(
+def main_train_scnn(
     sensor: EmgSensor,
     data_dir: str,
     sample_data: bool,
@@ -41,16 +41,15 @@ def train_scnn(
     print("Training on reps:", train_reps)
     print("Testing on reps:", test_reps)
 
-    model = EmgSCNN(sensor.emg_shape, classifier).to(accelerator)
-    model = models.train_model_scnn(
-        model, sensor, data_dir, classes, train_reps, test_reps
-    )
-    models.save_model_scnn(model, model_out_path)
-    return model
+    model = EmgSCNN(sensor.emg_shape).to(accelerator)
+    mw = EmgSCNNWrapper(model, classifier)
+    mw = models.train_scnn(mw, sensor, data_dir, classes, train_reps, test_reps)
+    models.save_scnn(mw, model_out_path)
+    return mw
 
 
-def test_scnn(
-    model: EmgSCNN,
+def main_test_scnn(
+    mw: EmgSCNNWrapper,
     sensor: EmgSensor,
     data_dir: str,
     sample_data: bool,
@@ -71,9 +70,9 @@ def test_scnn(
     odh = datasets.get_offline_datahandler(data_dir, classes, reps)
     test_data, test_labels = datasets.prepare_data(odh, sensor, 1, 1)
 
-    model.eval()
+    mw.model.eval()
     offc = EMGClassifier()
-    offc.classifier = model
+    offc.classifier = mw
     offc.add_majority_vote(sensor.maj_vote_n)
     preds = offc.run(test_data)
 
@@ -145,21 +144,21 @@ def __main():
 
     paths = NfcPaths("data/" + sensor.get_name())
 
-    # model = models.get_model_scnn(paths.model, sensor.emg_shape, g.ACCELERATOR)
-    model = train_scnn(
-        sensor=sensor,
-        data_dir=paths.train,
-        sample_data=SAMPLE_DATA,
-        gestures_list=TRAIN_GESTURE_IDS,
-        gestures_dir=paths.gestures,
-        # classifier=CosineSimilarity(),
-        classifier=LinearDiscriminantAnalysis(),
-        model_out_path=paths.model,
-        accelerator=g.ACCELERATOR,
-    )
+    mw = models.get_model_scnn(paths.model, sensor.emg_shape, g.ACCELERATOR)
+    # mw = main_train_scnn(
+    #     sensor=sensor,
+    #     data_dir=paths.train,
+    #     sample_data=SAMPLE_DATA,
+    #     gestures_list=TRAIN_GESTURE_IDS,
+    #     gestures_dir=paths.gestures,
+    #     # classifier=CosineSimilarity(),
+    #     classifier=LinearDiscriminantAnalysis(),
+    #     model_out_path=paths.model,
+    #     accelerator=g.ACCELERATOR,
+    # )
 
-    test_results = test_scnn(
-        model=model,
+    test_results = main_test_scnn(
+        mw=mw,
         sensor=sensor,
         data_dir=paths.test,
         sample_data=SAMPLE_TEST_DATA,

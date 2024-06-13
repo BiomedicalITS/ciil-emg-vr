@@ -19,7 +19,7 @@ if __name__ == "__main__":
     gesture_ids = [1, 2, 3, 4, 5, 8, 14, 26, 30]
     accelerator = c.ACCELERATOR
 
-    model = offline_main.train_scnn(
+    model = offline_main.main_train_scnn(
         sensor,
         paths.train,
         True,
@@ -31,4 +31,4 @@ if __name__ == "__main__":
 
     odw = online_main.OnlineDataWrapper(sensor, model, paths, gesture_ids, accelerator)
     odw.run()
-    models.save_model_scnn(model, paths.model.replace("model", "model_post"))
+    models.save_scnn(model, paths.model.replace("model", "model_post"))

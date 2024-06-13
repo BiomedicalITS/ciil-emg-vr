@@ -23,7 +23,7 @@ class EmgSensor:
         if sensor_type == EmgSensorType.BioArmband:
             self.fs = 1500
             self.emg_shape = (1, 8)
-            self.emg_factor = 500
+            self.emg_factor = 1400
         elif sensor_type == EmgSensorType.MyoArmband:
             self.fs = 200
             self.emg_shape = (1, 8)
@@ -49,7 +49,7 @@ class EmgSensor:
             process handle
         """
         if self.p is not None:
-            print("GHALLO")
+            pass
         elif self.sensor_type == EmgSensorType.MyoArmband:
             self.p = myo_streamer(filtered=False, imu=True)
         elif self.sensor_type == EmgSensorType.BioArmband:

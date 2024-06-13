@@ -13,9 +13,6 @@ from sklearn.base import BaseEstimator
 from sklearn.pipeline import make_pipeline
 from sklearn.utils import shuffle
 
-from emager_py import data_processing as dp
-from emager_py.torch import utils as etu
-
 from nfc_emg import datasets
 from nfc_emg.sensors import EmgSensor
 
@@ -148,7 +145,7 @@ class EmgCNN(L.LightningModule):
 
 
 class EmgSCNN(L.LightningModule):
-    def __init__(self, input_shape, classifier=None):
+    def __init__(self, input_shape):
         """
         Create a reference Fully Convolutional Siamese Emage model.
 
@@ -158,7 +155,6 @@ class EmgSCNN(L.LightningModule):
         """
         super().__init__()
         self.save_hyperparameters()
-        self.attach_classifier(classifier)
 
         output_sizes = [32, 32, 32, 128, 64]
 
@@ -214,59 +210,9 @@ class EmgSCNN(L.LightningModule):
         self.log("val_loss", loss)
         return loss
 
-    def test_step(self, batch, batch_idx):
-        x, y_true = batch
-        y_pred = self.predict(x)
-        y_true = y_true.cpu().detach().numpy()
-        acc = accuracy_score(y_true, y_pred, normalize=True)
-
-        self.log("test_acc", acc)
-        return {"loss": acc, "y_true": list(y_true), "y_pred": list(y_pred)}
-
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
         return optimizer
-
-    def attach_classifier(self, classifier):
-        """Attach an estimator to the model for classification. Required for `self.test_step()`
-
-        Args:
-            classifier: the classifier (can also be an Iterable of classifiers) to use at the end of the SCNN
-        """
-        if classifier is None:
-            return
-        elif not isinstance(classifier, Iterable):
-            classifier = [classifier]
-        self.classifier = make_pipeline(*classifier)
-
-    def fit_classifier(self, x, y):
-        """Fit the classifier on the given data.
-
-        Args:
-            x (_type_): numpy data that is passed through the CNN before fitting
-            y (_type_): labels
-        """
-        if not isinstance(x, torch.Tensor):
-            x = torch.from_numpy(x).to(self.device)
-        if len(x.shape) == 3:
-            x = x[:, np.newaxis, :, :]
-        embeddings = self(x).cpu().detach().numpy()
-        self.classifier.fit(embeddings, y)
-
-    def predict_embeddings(self, x):
-        if not isinstance(x, torch.Tensor):
-            x = torch.from_numpy(x).to(self.device)
-        if len(x.shape) == 3:
-            x = x[:, np.newaxis, :, :]
-        return self(x).cpu().detach().numpy()
-
-    def predict_proba(self, x):
-        embeddings = self.predict_embeddings(x)
-        return self.classifier.predict_proba(embeddings)
-
-    def predict(self, x):
-        embeddings = self.predict_embeddings(x)
-        return self.classifier.predict(embeddings)
 
 
 class CosineSimilarity(BaseEstimator):
@@ -307,6 +253,49 @@ class CosineSimilarity(BaseEstimator):
         return self.__cosine_similarity(X, False)
 
 
+class EmgSCNNWrapper:
+    def __init__(self, model: EmgSCNN, classifier: BaseEstimator):
+        self.model = model
+        self.attach_classifier(classifier)
+
+    def attach_classifier(self, classifier):
+        """Attach an estimator to the model for classification. Required for `self.test_step()`
+
+        Args:
+            classifier: the classifier (can also be an Iterable of classifiers) to use at the end of the SCNN
+        """
+        if classifier is None:
+            return
+        elif not isinstance(classifier, Iterable):
+            classifier = [classifier]
+        self.classifier = make_pipeline(*classifier)
+
+    def predict_embeddings(self, x):
+        if not isinstance(x, torch.Tensor):
+            x = torch.from_numpy(x).to(self.model.device)
+        if len(x.shape) == 3:
+            x = x[:, np.newaxis, :, :]
+        return self.model(x).cpu().detach().numpy()
+
+    def fit(self, x, y):
+        """Fit the classifier on the given data.
+
+        Args:
+            x (_type_): numpy data that is passed through the CNN before fitting
+            y (_type_): labels
+        """
+        embeddings = self.predict_embeddings(x)
+        self.classifier.fit(embeddings, y)
+
+    def predict_proba(self, x):
+        embeddings = self.predict_embeddings(x)
+        return self.classifier.predict_proba(embeddings)
+
+    def predict(self, x):
+        embeddings = self.predict_embeddings(x)
+        return self.classifier.predict(embeddings)
+
+
 def get_model(model_path: str, emg_shape: tuple, num_classes: int, finetune: bool):
     """
     Load a model checkpoint from path and return it
@@ -320,13 +309,13 @@ def get_model(model_path: str, emg_shape: tuple, num_classes: int, finetune: boo
     return model.eval()
 
 
-def save_model_scnn(model: EmgSCNN, out_path: str):
+def save_scnn(model: EmgSCNNWrapper, out_path: str):
     print(
         f"Saving SCNN model to {out_path}. Classifier is {model.classifier.steps[-1][1].__class__.__name__}"
     )
     torch.save(
         {
-            "model_state_dict": model.state_dict(),
+            "model_state_dict": model.model.state_dict(),
             "classifier": model.classifier,
         },
         out_path,
@@ -335,15 +324,13 @@ def save_model_scnn(model: EmgSCNN, out_path: str):
 
 def get_model_scnn(model_path: str, emg_shape: tuple, accelerator: str = "cpu"):
     """
-    Load an SCNN model checkpoint and return it
+    Load an SCNN model.
     """
     print(f"Loading SCNN model from {model_path}")
     chkpt = torch.load(model_path)
     model = EmgSCNN(emg_shape)
     model.load_state_dict(chkpt["model_state_dict"])
-    model.attach_classifier(chkpt["classifier"])
-    model.to(accelerator)
-    return model.eval()
+    return EmgSCNNWrapper(model, chkpt["classifier"])
 
 
 def train_model(
@@ -390,8 +377,8 @@ def train_model(
     return model
 
 
-def train_model_scnn(
-    model: EmgSCNN,
+def train_scnn(
+    mw: EmgSCNNWrapper,
     sensor: EmgSensor,
     data_dir: str,
     classes: list,
@@ -426,22 +413,23 @@ def train_model_scnn(
         train_odh, sensor, 1, 1, 64, True, num_triplets // (3 * len(classes))
     )
 
-    model.train()
+    mw.model.train()
     trainer = L.Trainer(
         max_epochs=10,
         callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
     )
-    trainer.fit(model, train_loader)
-    model.eval()
+    trainer.fit(mw.model, train_loader)
+    mw.model.eval()
 
     if len(test_reps) > 0:
         test_data, test_labels = datasets.prepare_data(test_odh, sensor, 1, 1)
         test_data, test_labels = shuffle(test_data, test_labels)
-        model.fit_classifier(test_data, test_labels)
-        test_loader = datasets.get_dataloader(test_odh, sensor, 1, 1, 256, False)
-        trainer.test(model, test_loader)
+        mw.fit(test_data, test_labels)
+        preds = mw.predict(test_data)
+        acc = accuracy_score(test_labels, preds)
+        print(f"Test accuracy: {acc:.2f}")
 
-    return model
+    return mw
 
 
 def test_model(
@@ -458,25 +446,6 @@ def test_model(
     test_loader = datasets.get_dataloader(odh, sensor, 1, 1, 128, False)
 
     model.eval()
-    y_pred, y_true = [], []
-    for i, batch in enumerate(test_loader):
-        ret = model.test_step(batch, i)
-        y_pred.extend(ret["y_pred"])
-        y_true.extend(ret["y_true"])
-    return y_pred, y_true
-
-
-def test_model_scnn(model: EmgSCNN, data_dir: str, num_gestures: int, test_reps: list):
-    """Test model. Returns (y_pred, y_true)."""
-    if not isinstance(test_reps, list):
-        test_reps = [test_reps]
-
-    model.eval()
-    odh = datasets.get_offline_datahandler(data_dir, num_gestures, test_reps)
-    test_loader = datasets.get_dataloader(odh, 1, 1, 128, False)
-    embeddings, labels = etu.get_all_embeddings(model, test_loader, "cpu")
-    targets = dp.get_n_shot_embeddings(embeddings, labels, len(set(labels)), -1)
-    model.set_target_embeddings(targets)
     y_pred, y_true = [], []
     for i, batch in enumerate(test_loader):
         ret = model.test_step(batch, i)
