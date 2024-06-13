@@ -11,6 +11,7 @@ from sklearn.metrics import accuracy_score
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.base import BaseEstimator
 from sklearn.pipeline import make_pipeline
+from sklearn.utils import shuffle
 
 from emager_py import data_processing as dp
 from emager_py.torch import utils as etu
@@ -157,7 +158,6 @@ class EmgSCNN(L.LightningModule):
         """
         super().__init__()
         self.save_hyperparameters()
-        self.classifier = None
         self.attach_classifier(classifier)
 
         output_sizes = [32, 32, 32, 128, 64]
@@ -253,12 +253,19 @@ class EmgSCNN(L.LightningModule):
         embeddings = self(x).cpu().detach().numpy()
         self.classifier.fit(embeddings, y)
 
-    def predict(self, x):
+    def predict_embeddings(self, x):
         if not isinstance(x, torch.Tensor):
             x = torch.from_numpy(x).to(self.device)
         if len(x.shape) == 3:
             x = x[:, np.newaxis, :, :]
-        embeddings = self(x).cpu().detach().numpy()
+        return self(x).cpu().detach().numpy()
+
+    def predict_proba(self, x):
+        embeddings = self.predict_embeddings(x)
+        return self.classifier.predict_proba(embeddings)
+
+    def predict(self, x):
+        embeddings = self.predict_embeddings(x)
         return self.classifier.predict(embeddings)
 
 
@@ -296,7 +303,7 @@ class CosineSimilarity(BaseEstimator):
     def predict(self, X):
         return self.__cosine_similarity(X, True)
 
-    def transform(self, X):
+    def predict_proba(self, X):
         return self.__cosine_similarity(X, False)
 
 
@@ -326,7 +333,7 @@ def save_model_scnn(model: EmgSCNN, out_path: str):
     )
 
 
-def get_model_scnn(model_path: str, emg_shape: tuple):
+def get_model_scnn(model_path: str, emg_shape: tuple, accelerator: str = "cpu"):
     """
     Load an SCNN model checkpoint and return it
     """
@@ -335,6 +342,7 @@ def get_model_scnn(model_path: str, emg_shape: tuple):
     model = EmgSCNN(emg_shape)
     model.load_state_dict(chkpt["model_state_dict"])
     model.attach_classifier(chkpt["classifier"])
+    model.to(accelerator)
     return model.eval()
 
 
@@ -389,7 +397,6 @@ def train_model_scnn(
     classes: list,
     train_reps: list,
     test_reps: list,
-    n_triplets: int,
 ):
     """Train a SCNN model
 
@@ -412,20 +419,26 @@ def train_model_scnn(
     train_odh = odh.isolate_data("reps", train_reps)
     test_odh = odh.isolate_data("reps", test_reps)
 
+    num_triplets = 0
+    for f in train_odh.data:
+        num_triplets += len(f)
     train_loader = datasets.get_triplet_dataloader(
-        train_odh, sensor, 1, 1, 64, True, n_triplets
+        train_odh, sensor, 1, 1, 64, True, num_triplets // (3 * len(classes))
     )
 
-    model = model.train()
+    model.train()
     trainer = L.Trainer(
         max_epochs=10,
         callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
     )
     trainer.fit(model, train_loader)
+    model.eval()
+
     if len(test_reps) > 0:
+        test_data, test_labels = datasets.prepare_data(test_odh, sensor, 1, 1)
+        test_data, test_labels = shuffle(test_data, test_labels)
+        model.fit_classifier(test_data, test_labels)
         test_loader = datasets.get_dataloader(test_odh, sensor, 1, 1, 256, False)
-        embeddings, labels = etu.get_all_embeddings(model, test_loader, "cpu")
-        model.fit_classifier(embeddings, labels)
         trainer.test(model, test_loader)
 
     return model

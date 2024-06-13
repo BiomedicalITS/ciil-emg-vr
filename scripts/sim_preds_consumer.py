@@ -1,8 +1,9 @@
 import socket
 import json
 
-import globals as g
-import schemas as sc
+from nfc_emg import schemas as sc
+
+import configs as g
 
 if __name__ == "__main__":
     print("*" * 80)

@@ -23,7 +23,7 @@ class EmgSensor:
         if sensor_type == EmgSensorType.BioArmband:
             self.fs = 1500
             self.emg_shape = (1, 8)
-            self.emg_factor = 200
+            self.emg_factor = 500
         elif sensor_type == EmgSensorType.MyoArmband:
             self.fs = 200
             self.emg_shape = (1, 8)
@@ -37,6 +37,7 @@ class EmgSensor:
         self.bandpass_freqs = bandpass_freqs
         self.set_moving_average(moving_average_ms)
         self.set_majority_vote(majority_vote_ms)
+        self.p = None
 
     def get_name(self):
         return self.sensor_type.value
@@ -47,10 +48,12 @@ class EmgSensor:
         Returns:
             process handle
         """
-        if self.sensor_type == EmgSensorType.MyoArmband:
-            return myo_streamer(filtered=False, imu=True)
+        if self.p is not None:
+            print("GHALLO")
+        elif self.sensor_type == EmgSensorType.MyoArmband:
+            self.p = myo_streamer(filtered=False, imu=True)
         elif self.sensor_type == EmgSensorType.BioArmband:
-            return sifibridge_streamer(
+            self.p = sifibridge_streamer(
                 version="1_1",
                 emg=True,
                 imu=True,
@@ -60,7 +63,9 @@ class EmgSensor:
                 emg_fir=self.bandpass_freqs,
             )
         elif self.sensor_type == EmgSensorType.Emager:
-            return emager_streamer()
+            self.p = emager_streamer()
+
+        return self.p
 
     def reorder(self, data: np.ndarray):
         """Reorder EMG data.
