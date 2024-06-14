@@ -7,7 +7,7 @@ from libemg.utils import make_regex
 
 from emager_py import data_processing as dp
 
-from nfc_emg.sensors import EmgSensor
+from nfc_emg.sensors import EmgSensor, EmgSensorType
 
 
 def process_data(data: np.ndarray, sensor: EmgSensor):
@@ -20,7 +20,9 @@ def process_data(data: np.ndarray, sensor: EmgSensor):
     Returns:
         Processed data with shape (n_samples, 1, *emg_shape)
     """
-    data = np.abs(sensor.reorder(data)) * sensor.emg_factor
+    if sensor.sensor_type == EmgSensorType.BioArmband:
+        data *= 1e3
+    data = np.abs(sensor.reorder(data))
     data = moving_average(data, sensor.moving_avg_n)
     return data.astype(np.float32)
 
@@ -76,24 +78,21 @@ def get_offline_datahandler(
 
 
 def prepare_data(odh: OfflineDataHandler, sensor: EmgSensor, ws, wi):
-    """Prepare data stored in an OfflineDataHandler for training.
+    """Prepare data stored in an OfflineDataHandler.
 
     Returns:
-        tuple of np.ndarray with shapes (n_samples, 1, *emg_shape), (n_samples,)
+        tuple of np.ndarray with shapes (N, H, W), (N,)
     """
     windows, meta = odh.parse_windows(ws, wi)
     windows = windows.swapaxes(1, 2)
-    windows = np.expand_dims(windows, axis=1)
-    windows = process_data(windows, sensor)
+    windows = process_data(windows, sensor).reshape(-1, *sensor.emg_shape)
     labels = meta["classes"]
     return windows, labels
 
 
 def get_triplet_dataloader(
-    odh: OfflineDataHandler,
-    sensor: EmgSensor,
-    ws: int,
-    wi: int,
+    data: np.ndarray,
+    labels: np.ndarray,
     batch_size: int,
     shuffle: bool,
     n_triplets,
@@ -102,22 +101,21 @@ def get_triplet_dataloader(
     Get a triplet dataloader.
 
     Params:
-        - odh: offline data handler
-        - sensor: emg sensor
-        - ws: window size
-        - wi: window increment
+        - data: (N, H, W)
+        - labels: (N,)
         - batch_size: batch size
         - shuffle: shuffle data
 
     Returns a dataloader which yields (anchor, positive, negative) batches.
     """
-    windows, labels = prepare_data(odh, sensor, ws, wi)
-    anchor, positive, negative = dp.generate_triplets(windows, labels, n_triplets)
+    anchor, positive, negative = dp.generate_triplets(
+        data, labels, n_triplets - n_triplets % batch_size
+    )
     dataloader = DataLoader(
         TensorDataset(
-            torch.from_numpy(anchor),
-            torch.from_numpy(positive),
-            torch.from_numpy(negative),
+            torch.from_numpy(anchor[:, np.newaxis, ...]),
+            torch.from_numpy(positive[:, np.newaxis, ...]),
+            torch.from_numpy(negative[:, np.newaxis, ...]),
         ),
         batch_size=batch_size,
         shuffle=shuffle,
@@ -126,10 +124,8 @@ def get_triplet_dataloader(
 
 
 def get_dataloader(
-    odh: OfflineDataHandler,
-    sensor: EmgSensor,
-    ws: int,
-    wi: int,
+    data: np.ndarray,
+    labels: np.ndarray,
     batch_size: int,
     shuffle: bool,
 ):
@@ -137,21 +133,21 @@ def get_dataloader(
     Get a dataloader for training.
 
     Params:
-        - odh: offline data handler
-        - sensor: emg sensor
-        - ws: window size
-        - wi: window increment
+        - data: (N, H, W)
+        - labels: (N,)
         - batch_size: batch size
         - shuffle: shuffle data
 
     Returns a dataloader which yields (windows, labels) batches.
     """
-    windows, labels = prepare_data(odh, sensor, ws, wi)
-    # cutoff = len(windows) - len(windows) % batch_size
-    # windows = windows[:cutoff]
-    # labels = labels[:cutoff]
+    cutoff = len(labels) - len(labels) % batch_size
+    data = data[:cutoff]
+    labels = labels[:cutoff]
     dataloader = DataLoader(
-        TensorDataset(torch.from_numpy(windows), torch.from_numpy(labels)),
+        TensorDataset(
+            torch.from_numpy(data[:, np.newaxis, ...]),
+            torch.from_numpy(labels),
+        ),
         batch_size=batch_size,
         shuffle=shuffle,
     )

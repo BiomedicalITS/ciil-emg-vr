@@ -35,11 +35,12 @@ def get_reps(path: str):
     return list(set([int(f.split("_")[1]) for f in os.listdir(path) if "R_" in f]))
 
 
-def map_gid_to_name(gesture_img_dir: str):
+def map_gid_to_name(gesture_img_dir: str, gids=None):
     """Map all gesture IDs (GID) to their human-readable name
 
     Args:
-        gesture_img_dir (str): path to LibEMG gestures
+        - gesture_img_dir (str): path to LibEMG gestures
+        - gids: only map these GIDs. If None, map all GIDs
 
     Returns a dictionary mapping the gesture ID to the human-readable gesture name
 
@@ -50,17 +51,18 @@ def map_gid_to_name(gesture_img_dir: str):
     for k, v in gid_to_name.items():
         if not isinstance(v, str):
             continue
-        ret[int(k)] = v
+        if gids is None or int(k) in gids:
+            ret[int(k)] = v
     return ret
 
 
-def map_cid_to_name(data_dir: str):
+def map_cid_to_name(data_dir: str, cids=None):
     """
     Map the ODH Class ID (CID) to the human-readable gesture name.
 
     Params:
         - data_dir: path to the directory where data is stored
-
+        - cids: only map these CIDs. If None, map all CIDs
     Returns a dictionary mapping the class index to the human-readable gesture name
     """
     with open(data_dir + "metadata.json", "r") as f:
@@ -71,20 +73,24 @@ def map_cid_to_name(data_dir: str):
             continue
         if "class_idx" not in val and "class_name" not in val:
             continue
-        class_to_name[val["class_idx"]] = val["class_name"]
+        if cids is None or val["class_idx"] in cids:
+            class_to_name[val["class_idx"]] = val["class_name"]
+    print(
+        "TODO: map_cid_to_name: manage the caes where there is a 'hole' in requested CIDs eg [0, 1, 3, 4] which should return [0, 1, 2, 3]"
+    )
     return class_to_name
 
 
-def map_gid_to_cid(gesture_img_dir: str, data_dir: str):
+def map_gid_to_cid(gesture_img_dir: str, data_dir: str, gids=None):
     """Map LibEMG Gesture ID (GIDs) to ODH Class ID (CIDs)
 
     Args:
-        gesture_img_dir (str): where the images are stored
-        data_dir (str): where the data is stored
-
+        - gesture_img_dir (str): where the images are stored
+        - data_dir (str): where the data is stored
+        - gids: only map these GIDs. If None, map all GIDs
     Returns a dictionary mapping the gesture ID to the class ID
     """
-    gid_to_name = map_gid_to_name(gesture_img_dir)
+    gid_to_name = map_gid_to_name(gesture_img_dir, gids)
     name_to_gid = {}
     for g, n in gid_to_name.items():
         if not isinstance(n, str):
@@ -94,28 +100,62 @@ def map_gid_to_cid(gesture_img_dir: str, data_dir: str):
     cid_to_name = map_cid_to_name(data_dir)
     gid_to_cid = {}
     for c, n in cid_to_name.items():
+        if n not in gid_to_name.values():
+            continue
         gid_to_cid[name_to_gid[n]] = c
 
     return gid_to_cid
 
 
-def get_cid_from_gid(gesture_img_dir: str, data_dir: str, gestures: list):
-    """Get corresponding CIDs from a list of GIDs. Useful to load data from specific classes from ODH.
+def map_cid_to_ordered_name(gesture_img_dir: str, data_dir: str, gids=None):
+    """Map the ODH Class ID (CID) to the human-readable gesture name from GIDs.
 
     Args:
         gesture_img_dir (str): _description_
         data_dir (str): _description_
-        gestures (list): _description_
+        gids (_type_, optional): _description_. Defaults to None.
 
-    Returns a list of class IDs
+    Returns: a dict of int[str]
     """
-    g_to_c = map_gid_to_cid(gesture_img_dir, data_dir)
-    return [g_to_c[g] for g in gestures]
+    return map_cid_to_name(
+        data_dir,
+        get_cid_from_gid(gesture_img_dir, data_dir, gids),
+    )
+
+
+def get_cid_from_gid(gesture_img_dir: str, data_dir: str, gestures: list):
+    """Get the ODH Class ID (CID) from a list of GIDs
+
+    Args:
+        - gesture_img_dir (str): where the images are stored
+        - data_dir (str): where the data is stored
+        - gids: only map these GIDs. If None, map all GIDs
+    Returns a list of class indices
+    """
+    return list(map_gid_to_cid(gesture_img_dir, data_dir, gestures).values())
+
+
+def get_name_from_gid(gestures_img_dir: str, data_dir: str, gestures: list):
+    """From a list of GIDs, get the ordered list (CID) of gesture names.
+
+    For example, this can be used to get the human-readable gesture name directly from a model prediction trained with data from `data_dir`.
+
+    >>> class_names = get_name_from_gid(gestures_img_dir, data_dir, gestures)
+    >>> pred = model.predict(data) # pred is a list of class indices
+    >>> print([class_names[p] for p in pred])
+    Hand Open
+    Hand Close
+    ...
+    """
+    return [
+        map_cid_to_name(data_dir)[i]
+        for i in sorted(get_cid_from_gid(gestures_img_dir, data_dir, gestures))
+    ]
 
 
 def get_filter(
     sampling_rate: float,
-    bandpass_freqs: float | Iterable = (20, 350),
+    bandpass_freqs: float | Iterable = (20, 450),
     notch_freq: int = 50,
 ):
     if not isinstance(bandpass_freqs, Iterable):
@@ -140,6 +180,7 @@ def get_online_data_handler(
     bandpass_freqs: float | list = (20, 450),
     notch_freq: int = 50,
     imu: bool = True,
+    attach_filters: bool = True,
     **kwargs,
 ) -> OnlineDataHandler:
     """Get odh and install filters on it. Start listening to the stream.
@@ -155,7 +196,8 @@ def get_online_data_handler(
         OnlineDataHandler: _description_
     """
     odh = OnlineDataHandler(imu_arr=imu, **kwargs)
-    odh.install_filter(get_filter(sampling_rate, bandpass_freqs, notch_freq))
+    if attach_filters:
+        odh.install_filter(get_filter(sampling_rate, bandpass_freqs, notch_freq))
     odh.start_listening()
     return odh
 

@@ -23,15 +23,12 @@ class EmgSensor:
         if sensor_type == EmgSensorType.BioArmband:
             self.fs = 1500
             self.emg_shape = (1, 8)
-            self.emg_factor = 1400
         elif sensor_type == EmgSensorType.MyoArmband:
             self.fs = 200
             self.emg_shape = (1, 8)
-            self.emg_factor = 1 / 128.0
         elif sensor_type == EmgSensorType.Emager:
             self.fs = 1000
             self.emg_shape = (4, 16)
-            self.emg_factor = 1 / 32768.0
 
         self.notch_freq = notch_freq
         self.bandpass_freqs = bandpass_freqs
@@ -74,10 +71,7 @@ class EmgSensor:
             data (np.ndarray): 3 or 4D array of EMG data (N[, 1], H, W)
         """
         if self.sensor_type == EmgSensorType.BioArmband:
-            if len(data.shape) == 3:
-                return data[:, :, [4, 6, 3, 0, 7, 1, 2, 5]]
-            else:
-                return data[:, :, :, [4, 6, 3, 0, 7, 1, 2, 5]]
+            return data[..., [4, 6, 3, 0, 7, 1, 2, 5]]
         else:
             return data
 

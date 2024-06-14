@@ -15,6 +15,7 @@ dependencies = [
     "tqdm>=4.66.4",
     "emager-py @ git+https://github.com/SBIOML/emager-py@main",
     "libemg @ git+https://github.com/gabrielpgagne/libemg@main",
+    "torch>=2.3.1",
 ]
 requires-python = ">=3.10"
 readme = "README.md"

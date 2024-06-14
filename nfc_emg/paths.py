@@ -7,6 +7,7 @@ class NfcPaths:
     gestures: str = "gestures/"
     model: str = "model.pth"
     train: str = "train/"
+    fine: str = "fine/"
     test: str = "test/"
     imu_calib: str = "imu_calib_data.npz"
 
@@ -20,12 +21,6 @@ class NfcPaths:
         self.gestures = self.base + "gestures/"
         self.model = self.base + "model.pth"
         self.train = self.base + "train/"
+        self.fine = self.base + "fine/"
         self.test = self.base + "test/"
         self.imu_calib = self.base + "imu_calib_data.npz"
-
-
-if __name__ == "__main__":
-    paths = NfcPaths()
-    print(paths.model)
-    paths.set_base_dir("ffffff")
-    print(paths.model)

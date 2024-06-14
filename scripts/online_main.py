@@ -6,23 +6,20 @@ import numpy as np
 from pyquaternion import Quaternion
 from tqdm import tqdm
 
-from libemg.emg_classifier import EMGClassifier, OnlineEMGClassifier
-
 from emager_py import majority_vote
 from emager_py.data_processing import cosine_similarity
 
 from nfc_emg import utils, models, datasets, schemas as s
 from nfc_emg.sensors import EmgSensor, EmgSensorType
-from nfc_emg.models import EmgSCNN
+from nfc_emg.models import EmgSCNNWrapper
 from nfc_emg.paths import NfcPaths
-import configs as g
 
 
 class OnlineDataWrapper:
     def __init__(
         self,
         sensor: EmgSensor,
-        model: EmgSCNN,
+        mw: EmgSCNNWrapper,
         paths: NfcPaths,
         gestures_id_list: list,
         accelerator: str,
@@ -63,10 +60,7 @@ class OnlineDataWrapper:
 
         self.accelerator = accelerator
 
-        self.model = model
-        self.model.to(self.accelerator)
-        self.model.eval()
-        # print("Classifier classes:", self.model.classifier.classes_)
+        self.mw = mw
 
         self.emg_buffer_size = self.sensor.fs
         self.emg_buffer = np.zeros(
@@ -76,9 +70,9 @@ class OnlineDataWrapper:
         self.voter = majority_vote.MajorityVote(self.sensor.maj_vote_n)
 
         # Convert GIDs to CIDs
-        self.class_names = [
-            utils.map_gid_to_name(paths.gestures)[gid] for gid in gestures_id_list
-        ]
+        self.class_names = utils.get_name_from_gid(
+            paths.gestures, paths.train, gestures_id_list
+        )
 
         self.arm_movement_list = s.ArmControl._member_names_
         self.arm_calib_data = np.zeros((len(self.arm_movement_list), 4))
@@ -107,7 +101,7 @@ class OnlineDataWrapper:
 
             labels = self.get_live_labels()
             if labels is not None:
-                self.model.fit_classifier(
+                self.mw.fit_classifier(
                     self.emg_buffer, np.repeat(labels, len(self.emg_buffer))
                 )
                 print(f"Calibrated on label {labels.item()}.")
@@ -303,27 +297,21 @@ class OnlineDataWrapper:
 
 if __name__ == "__main__":
     import time
+    import configs as g
 
     sensor = EmgSensor(EmgSensorType.BioArmband)
     paths = NfcPaths(f"data/{sensor.get_name()}")
-    model = models.get_model_scnn(paths.model, sensor.emg_shape)
-
-    odh = utils.get_online_data_handler(
-        sensor.fs, sensor.bandpass_freqs, sensor.notch_freq, True, max_buffer=sensor.fs
-    )
-    offc = EMGClassifier()
-    offc.classifier = model
-    offc.add_majority_vote(sensor.maj_vote_n)
+    model = models.get_scnn(paths.model, sensor.emg_shape)
 
     odw = OnlineDataWrapper(
         sensor,
         model,
         paths,
-        [1, 2, 3, 26, 30],
+        [1, 2, 3, 4, 5, 8, 14, 26, 30],
         g.ACCELERATOR,
         g.PEUDO_LABELS_PORT,
         g.PREDS_IP,
         g.PREDS_PORT,
     )
-    odw.visualize_emg()
+    # odw.visualize_emg()
     odw.run()

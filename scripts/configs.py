@@ -1,5 +1,9 @@
 try:
     import torch
+    from lightning.pytorch import seed_everything
+
+    __SEED = 310
+    seed_everything(__SEED)
 
     ACCELERATOR = (
         "cuda"
