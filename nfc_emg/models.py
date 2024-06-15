@@ -12,9 +12,15 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.pipeline import make_pipeline
 from sklearn.utils import shuffle
 from sklearn.base import BaseEstimator
+from sklearn.model_selection import train_test_split
 
-from nfc_emg import datasets
-from nfc_emg.sensors import EmgSensor
+from libemg.offline_metrics import OfflineMetrics
+
+from emager_py.majority_vote import majority_vote
+
+
+from nfc_emg import datasets, utils
+from nfc_emg.sensors import EmgSensor, EmgSensorType
 
 
 class EmgCNN(L.LightningModule):
@@ -28,66 +34,35 @@ class EmgCNN(L.LightningModule):
         self.save_hyperparameters()
         self.fine_tuning = False
 
-        hidden_layer_sizes = [64, 32, 32, 128, 64]
-
-        # Conv layers
-        self.conv1 = nn.Conv2d(1, hidden_layer_sizes[0], 5, padding=2)
-        self.relu1 = nn.ReLU()
-        self.bn1 = nn.BatchNorm2d(hidden_layer_sizes[0])
-
-        self.conv2 = nn.Conv2d(
-            hidden_layer_sizes[0], hidden_layer_sizes[1], 3, padding=1
-        )
-        self.relu2 = nn.ReLU()
-        self.bn2 = nn.BatchNorm2d(hidden_layer_sizes[1])
-
-        self.conv3 = nn.Conv2d(
-            hidden_layer_sizes[1], hidden_layer_sizes[2], 3, padding=1
-        )
-        self.relu3 = nn.ReLU()
-        self.bn3 = nn.BatchNorm2d(hidden_layer_sizes[2])
-
-        # Fully connected layers
-        self.flat = nn.Flatten()
-
-        self.fc4 = nn.Linear(
-            hidden_layer_sizes[2] * np.prod(input_shape),
-            hidden_layer_sizes[3],
-        )
-        self.do4 = nn.Dropout(0.5)
-        self.relu4 = nn.ReLU()
-        self.bn4 = nn.BatchNorm1d(hidden_layer_sizes[3])
+        hl_sizes = [32, 32, 32, 128, 64]
 
         self.feature_extractor = nn.Sequential(
-            self.conv1,
-            self.relu1,
-            self.bn1,
-            self.conv2,
-            self.relu2,
-            self.bn2,
-            self.conv3,
-            self.relu3,
-            self.bn3,
-            self.flat,
-            self.fc4,
-            self.do4,
-            self.relu4,
-            self.bn4,
+            nn.Conv2d(1, hl_sizes[0], 5, padding=2),
+            nn.LeakyReLU(),
+            nn.BatchNorm2d(hl_sizes[0]),
+            nn.Conv2d(hl_sizes[0], hl_sizes[1], 3, padding=1),
+            nn.LeakyReLU(),
+            nn.BatchNorm2d(hl_sizes[1]),
+            nn.Conv2d(hl_sizes[1], hl_sizes[2], 3, padding=1),
+            nn.LeakyReLU(),
+            nn.BatchNorm2d(hl_sizes[2]),
+            nn.Flatten(),
+            nn.Linear(hl_sizes[2] * np.prod(input_shape), hl_sizes[3]),
+            nn.LeakyReLU(),
+            nn.BatchNorm1d(hl_sizes[3]),
         )
 
-        self.fc5 = nn.Linear(
-            hidden_layer_sizes[3],
-            hidden_layer_sizes[4],
+        self.fine_feature_extractor = nn.Sequential(
+            nn.Linear(hl_sizes[3], hl_sizes[4]),
+            nn.LeakyReLU(),
+            nn.BatchNorm1d(hl_sizes[4]),
         )
-        self.do5 = nn.Dropout(0.5)
-        self.relu5 = nn.ReLU()
-        self.bn5 = nn.BatchNorm1d(hidden_layer_sizes[4])
 
-        self.classifier = nn.Linear(hidden_layer_sizes[4], num_classes)
+        self.classifier = nn.Linear(hl_sizes[4], num_classes)
 
     def forward(self, x):
         out = self.feature_extractor(x)
-        out = self.bn5(self.do5(self.relu5(self.fc5(out))))
+        out = self.fine_feature_extractor(out)
         logits = self.classifier(out)
         return logits
 
@@ -140,9 +115,31 @@ class EmgCNN(L.LightningModule):
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
         return optimizer
 
+    def convert_input(self, x):
+        if not isinstance(x, torch.Tensor):
+            x = torch.from_numpy(x).to(self.device)
+        if len(x.shape) == 3:
+            x = x.reshape(-1, 1, *x.shape[1:])
+        elif len(x.shape) == 2:
+            x = x.reshape(-1, 1, 1, x.shape[1])
+        return x
+
+    def predict(self, x):
+        x = self.convert_input(x)
+        with torch.no_grad():
+            return np.argmax(self(x).cpu().detach().numpy(), axis=1)
+
+    def fit(self, x, y):
+        x = self.convert_input(x)
+        if not isinstance(y, torch.Tensor):
+            y = torch.from_numpy(y).to(self.device)
+        self.training_step(x, y)
+
     def set_finetune(self, fine_tuning: bool, num_classes: int):
         self.fine_tuning = fine_tuning
-        self.feature_extractor.requires_grad = fine_tuning
+        for param in self.feature_extractor.parameters():
+            param.requires_grad_(fine_tuning)
+            print(param.requires_grad)
         if num_classes != self.classifier.out_features:
             print(
                 f"Setting to {num_classes} classes from {self.classifier.out_features}"
@@ -153,8 +150,6 @@ class EmgCNN(L.LightningModule):
 class EmgSCNN(L.LightningModule):
     def __init__(self, input_shape):
         """
-        Create a reference Fully Convolutional Siamese Emage model.
-
         Parameters:
             - input_shape: EMG input shape (H, W)
             - classifier: a classifier to attach to the model. Can also be attached later with `attach_classifier()`
@@ -162,43 +157,28 @@ class EmgSCNN(L.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
-        output_sizes = [32, 32, 32, 128, 64]
+        hl_sizes = [32, 32, 32, 128, 64]
 
-        self.conv1 = nn.Conv2d(1, output_sizes[0], 5, padding=2)
-        self.relu1 = nn.ReLU()
-        self.bn1 = nn.BatchNorm2d(output_sizes[0])
-
-        self.conv2 = nn.Conv2d(output_sizes[0], output_sizes[1], 3, padding=1)
-        self.relu2 = nn.ReLU()
-        self.bn2 = nn.BatchNorm2d(output_sizes[1])
-
-        self.conv3 = nn.Conv2d(output_sizes[1], output_sizes[2], 3, padding=1)
-        self.relu3 = nn.ReLU()
-        self.bn3 = nn.BatchNorm2d(output_sizes[2])
-
-        self.flat = nn.Flatten()
-
-        self.fc4 = nn.Linear(
-            output_sizes[2] * np.prod(input_shape),
-            output_sizes[3],
-        )
-        self.do4 = nn.Dropout(0.5)
-        self.relu4 = nn.ReLU()
-        self.bn4 = nn.BatchNorm1d(output_sizes[3])
-
-        self.fc5 = nn.Linear(
-            output_sizes[3],
-            output_sizes[4],
+        self.feature_extractor = nn.Sequential(
+            nn.Conv2d(1, hl_sizes[0], 5, padding=2),
+            nn.LeakyReLU(),
+            nn.BatchNorm2d(hl_sizes[0]),
+            nn.Conv2d(hl_sizes[0], hl_sizes[1], 3, padding=1),
+            nn.LeakyReLU(),
+            nn.BatchNorm2d(hl_sizes[1]),
+            nn.Conv2d(hl_sizes[1], hl_sizes[2], 3, padding=1),
+            nn.LeakyReLU(),
+            nn.BatchNorm2d(hl_sizes[2]),
+            nn.Flatten(),
+            nn.Linear(hl_sizes[2] * np.prod(input_shape), hl_sizes[3]),
+            nn.LeakyReLU(),
+            nn.BatchNorm1d(hl_sizes[3]),
+            nn.Linear(hl_sizes[3], hl_sizes[4]),
+            nn.BatchNorm1d(hl_sizes[4]),
         )
 
     def forward(self, x):
-        out = self.bn1(self.relu1(self.conv1(x)))
-        out = self.bn2(self.relu2(self.conv2(out)))
-        out = self.bn3(self.relu3(self.conv3(out)))
-        out = self.flat(out)
-        out = self.bn4(self.do4(self.relu4(self.fc4(out))))
-        features = self.fc5(out)
-        return features
+        return self.feature_extractor(x)
 
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop. It is independent of forward
@@ -272,17 +252,13 @@ class EmgSCNNWrapper:
         self.std = 1.0
         self.attach_classifier(classifier)
 
-    def attach_classifier(self, classifier):
+    def attach_classifier(self, classifier: BaseEstimator):
         """Attach an estimator to the model for classification. Required for `self.test_step()`
 
         Args:
             classifier: the classifier (can also be an Iterable of classifiers) to use at the end of the SCNN
         """
-        if classifier is None:
-            return
-        elif not isinstance(classifier, Iterable):
-            classifier = [classifier]
-        self.classifier = make_pipeline(*classifier)
+        self.classifier = classifier
 
     def set_normalize(self, x):
         self.mean = np.mean(x)
@@ -338,7 +314,7 @@ def get_model(model_path: str, emg_shape: tuple, num_classes: int, finetune: boo
 
 def save_scnn(mw: EmgSCNNWrapper, out_path: str):
     print(
-        f"Saving SCNN model to {out_path}. Classifier is {mw.classifier.steps[-1][1].__class__.__name__}"
+        f"Saving SCNN model to {out_path}. Classifier is {mw.classifier.__class__.__name__}"
     )
     torch.save(
         {
@@ -360,7 +336,6 @@ def get_scnn(model_path: str, emg_shape: tuple, accelerator: str = "cpu"):
     """
     Load an SCNN model.
     """
-    print(f"Loading SCNN model from {model_path}")
     chkpt = torch.load(model_path)
 
     model = EmgSCNN(emg_shape).to(accelerator)
@@ -369,6 +344,11 @@ def get_scnn(model_path: str, emg_shape: tuple, accelerator: str = "cpu"):
     mw = EmgSCNNWrapper(model, chkpt["classifier"])
     mw.mean = chkpt["mean"]
     mw.std = chkpt["std"]
+
+    print(
+        f"Loaded SCNN model from {model_path}. Classifier is {mw.classifier.__class__.__name__}"
+    )
+
     return mw
 
 
@@ -502,3 +482,203 @@ def test_model(
             y_pred.extend(ret["y_pred"])
             y_true.extend(ret["y_true"])
     return np.array(y_pred), np.array(y_true)
+
+
+def main_train_scnn(
+    sensor: EmgSensor,
+    data_dir: str,
+    sample_data: bool,
+    gestures_list: list,
+    gestures_dir: str,
+    classifier: BaseEstimator,
+    model_out_path: str,
+):
+    if sample_data:
+        sensor.start_streamer()
+        odh = utils.get_online_data_handler(
+            sensor.fs,
+            sensor.bandpass_freqs,
+            sensor.notch_freq,
+            False,
+            False if sensor.sensor_type == EmgSensorType.BioArmband else True,
+        )
+        utils.screen_guided_training(odh, gestures_list, gestures_dir, 5, 5, data_dir)
+
+    classes = utils.get_cid_from_gid(gestures_dir, data_dir, gestures_list)
+    reps = utils.get_reps(data_dir)
+    if len(reps) == 1:
+        train_reps = reps
+        test_reps = []
+    else:
+        train_reps = reps[: int(0.8 * len(reps))]
+        test_reps = reps[int(0.8 * len(reps)) :]
+
+    model = EmgSCNN(sensor.emg_shape)
+    mw = EmgSCNNWrapper(model, classifier)
+    mw = train_scnn(mw, sensor, data_dir, classes, train_reps, test_reps)
+    save_scnn(mw, model_out_path)
+    return mw
+
+
+def main_finetune_scnn(
+    mw: EmgSCNNWrapper,
+    sensor: EmgSensor,
+    data_dir: str,
+    sample_data: bool,
+    gestures_list: list,
+    gestures_dir: str,
+):
+    if sample_data:
+        sensor.start_streamer()
+        odh = utils.get_online_data_handler(
+            sensor.fs,
+            sensor.bandpass_freqs,
+            sensor.notch_freq,
+            False,
+            False if sensor.sensor_type == EmgSensorType.BioArmband else True,
+        )
+        utils.screen_guided_training(odh, gestures_list, gestures_dir, 1, 5, data_dir)
+        odh.stop_listening()
+
+    classes = utils.get_cid_from_gid(gestures_dir, data_dir, gestures_list)
+    reps = utils.get_reps(data_dir)
+
+    odh = datasets.get_offline_datahandler(data_dir, classes, reps)
+    data, labels = datasets.prepare_data(odh, sensor, 1, 1)
+
+    train_data, test_data, train_labels, test_labels = train_test_split(
+        data, labels, test_size=0.2, shuffle=True
+    )
+
+    # Fit classifier
+    mw.model.eval()
+    mw.fit(train_data, train_labels)
+    return mw
+
+
+def main_test_scnn(
+    mw: EmgSCNNWrapper,
+    sensor: EmgSensor,
+    data_dir: str,
+    sample_data: bool,
+    gestures_list: list,
+    gestures_dir: str,
+):
+    if sample_data:
+        sensor.start_streamer()
+        odh = utils.get_online_data_handler(
+            sensor.fs,
+            sensor.bandpass_freqs,
+            sensor.notch_freq,
+            False,
+            False if sensor.sensor_type == EmgSensorType.BioArmband else True,
+        )
+        utils.screen_guided_training(odh, gestures_list, gestures_dir, 2, 5, data_dir)
+        odh.stop_listening()
+
+    classes = utils.get_cid_from_gid(gestures_dir, data_dir, gestures_list)
+    reps = utils.get_reps(data_dir)
+
+    odh = datasets.get_offline_datahandler(data_dir, classes, reps)
+    test_data, test_labels = datasets.prepare_data(odh, sensor, 1, 1)
+    idle_id = utils.map_gid_to_cid(gestures_dir, data_dir)[1]
+
+    mw.model.eval()
+    preds = mw.predict(test_data)
+    preds_maj = majority_vote(preds, sensor.maj_vote_n)
+
+    # for i in range(len(set(test_labels))):
+    #     print(set(preds[test_labels == i]))
+    # print(set(preds))
+
+    # acc = accuracy_score(test_labels, preds)
+    # print(acc)
+
+    om = OfflineMetrics()
+    metrics = ["CA", "AER", "INS", "REJ_RATE", "CONF_MAT", "RECALL", "PREC", "F1"]
+
+    results = om.extract_offline_metrics(
+        metrics, test_labels, preds, null_label=idle_id
+    )
+    results_maj = om.extract_offline_metrics(
+        metrics, test_labels, preds_maj, null_label=idle_id
+    )
+    print(f"CA RAW: {results['CA']}")
+    print(f"CA MAJ: {results_maj['CA']}")
+    return results_maj
+
+
+def main_cnn(
+    sensor: EmgSensor,
+    sample_data: bool,
+    gestures_list: list,
+    gestures_dir: str,
+    data_dir: str,
+    finetune: bool,
+    model_out_path: str,
+):
+    if sample_data:
+        sensor.start_streamer()
+        odh = utils.get_online_data_handler(
+            sensor.fs, notch_freq=sensor.notch_freq, imu=False
+        )
+        utils.screen_guided_training(
+            odh, gestures_list, gestures_dir, 1 if finetune else 5, 5, data_dir
+        )
+        odh.stop_listening()
+
+    classes = utils.get_cid_from_gid(gestures_dir, data_dir, gestures_list)
+    reps = utils.get_reps(data_dir)
+    if len(reps) == 1:
+        train_reps = reps
+        test_reps = []
+    else:
+        train_reps = reps[: int(0.8 * len(reps))]
+        test_reps = reps[int(0.8 * len(reps)) :]
+
+    model = (
+        EmgCNN(sensor.emg_shape, len(gestures_list))
+        if not finetune
+        else get_model(model_out_path, sensor.emg_shape, len(gestures_list), True)
+    )
+    model = train_cnn(model, sensor, data_dir, classes, train_reps, test_reps)
+    torch.save(model.state_dict(), model_out_path)
+    return model
+
+
+def main_test_cnn(
+    model: EmgCNN,
+    sensor: EmgSensor,
+    data_dir: str,
+    sample_data: bool,
+    gestures_list: list,
+    gestures_dir: str,
+):
+    if sample_data:
+        sensor.start_streamer()
+        odh = utils.get_online_data_handler(
+            sensor.fs,
+            sensor.bandpass_freqs,
+            sensor.notch_freq,
+            False,
+            False if sensor.sensor_type == EmgSensorType.BioArmband else True,
+        )
+        utils.screen_guided_training(odh, gestures_list, gestures_dir, 2, 5, data_dir)
+        odh.stop_listening()
+
+    classes = utils.get_cid_from_gid(gestures_dir, data_dir, gestures_list)
+    reps = utils.get_reps(data_dir)
+    idle_cid = utils.map_gid_to_cid(gestures_dir, data_dir)[1]
+
+    preds, labels = test_model(model, sensor, data_dir, classes, reps)
+    preds_maj = majority_vote(preds, sensor.maj_vote_n)
+
+    om = OfflineMetrics()
+    metrics = ["CA", "AER", "INS", "REJ_RATE", "CONF_MAT", "RECALL", "PREC", "F1"]
+    results = om.extract_offline_metrics(metrics, labels, preds, idle_cid)
+    results_maj = om.extract_offline_metrics(metrics, labels, preds_maj, idle_cid)
+
+    print(f"Precision RAW: {results['PREC']}")
+    print(f"Precision MAJ: {results_maj['PREC']}")
+
+    return results_maj

@@ -48,6 +48,8 @@ def map_gid_to_name(gesture_img_dir: str, gids=None):
     with open(gesture_img_dir + "gesture_list.json", "r") as f:
         gid_to_name: dict = json.load(f)
     ret = {}
+    gid_to_name["17"] = "Wrist_Down"
+    gid_to_name["18"] = "Wrist_Up"
     for k, v in gid_to_name.items():
         if not isinstance(v, str):
             continue
@@ -74,10 +76,11 @@ def map_cid_to_name(data_dir: str, cids=None):
         if "class_idx" not in val and "class_name" not in val:
             continue
         if cids is None or val["class_idx"] in cids:
+            if val["class_name"] == "OK":
+                val["class_name"] = "Wrist_Down"
+            if val["class_name"] == "Stop":
+                val["class_name"] = "Wrist_Up"
             class_to_name[val["class_idx"]] = val["class_name"]
-    print(
-        "TODO: map_cid_to_name: manage the caes where there is a 'hole' in requested CIDs eg [0, 1, 3, 4] which should return [0, 1, 2, 3]"
-    )
     return class_to_name
 
 
@@ -245,6 +248,13 @@ def screen_guided_training(
         to_download = gestures_id_list
     train_ui = ScreenGuidedTraining()
     train_ui.download_gestures(to_download, gestures_img_dir)
+    if 17 in gestures_id_list:
+        os.remove(gestures_img_dir + "OK.png")
+        shutil.copy("wrist_images/OK.png", gestures_img_dir)
+    if 18 in gestures_id_list:
+        os.remove(gestures_img_dir + "Stop.png")
+        shutil.copy("wrist_images/Stop.png", gestures_img_dir)
+
     train_ui.launch_training(
         odh,
         num_reps,

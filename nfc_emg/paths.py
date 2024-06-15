@@ -24,3 +24,11 @@ class NfcPaths:
         self.fine = self.base + "fine/"
         self.test = self.base + "test/"
         self.imu_calib = self.base + "imu_calib_data.npz"
+
+    def set_model_name(self, name: str):
+        """
+        Set model name. Does not require .pth extension.
+        """
+        if name.endswith(".pth"):
+            name = name[:-4]
+        self.model = self.base + name + ".pth"

@@ -4,6 +4,7 @@ import json
 
 import numpy as np
 from pyquaternion import Quaternion
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from tqdm import tqdm
 
 from emager_py import majority_vote
@@ -11,7 +12,7 @@ from emager_py.data_processing import cosine_similarity
 
 from nfc_emg import utils, models, datasets, schemas as s
 from nfc_emg.sensors import EmgSensor, EmgSensorType
-from nfc_emg.models import EmgSCNNWrapper
+from nfc_emg.models import EmgCNN, EmgSCNNWrapper
 from nfc_emg.paths import NfcPaths
 
 
@@ -19,7 +20,7 @@ class OnlineDataWrapper:
     def __init__(
         self,
         sensor: EmgSensor,
-        mw: EmgSCNNWrapper,
+        mw: EmgSCNNWrapper | EmgCNN,
         paths: NfcPaths,
         gestures_id_list: list,
         accelerator: str,
@@ -40,9 +41,6 @@ class OnlineDataWrapper:
 
         self.sensor = sensor
         self.paths = paths
-
-        self.sensor.start_streamer()
-
         self.odh = utils.get_online_data_handler(
             sensor.fs,
             sensor.bandpass_freqs,
@@ -50,6 +48,8 @@ class OnlineDataWrapper:
             True,
             max_buffer=sensor.fs,
         )
+
+        self.sensor.start_streamer()
 
         self.pl_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.pl_socket.bind(("127.0.0.1", pseudo_labels_port))
@@ -101,9 +101,7 @@ class OnlineDataWrapper:
 
             labels = self.get_live_labels()
             if labels is not None:
-                self.mw.fit_classifier(
-                    self.emg_buffer, np.repeat(labels, len(self.emg_buffer))
-                )
+                self.mw.fit(self.emg_buffer, np.repeat(labels, len(self.emg_buffer)))
                 print(f"Calibrated on label {labels.item()}.")
 
             if preds is not None:
@@ -117,7 +115,7 @@ class OnlineDataWrapper:
 
             # Send commands for arm, wrist, gripper
             if imu_command is not None and imu_command != last_arm_cmd:
-                print(f"Arm: {imu_command.name}")
+                # print(f"Arm: {imu_command.name}")
                 last_arm_cmd = imu_command
                 self.send_robot_command(s.to_dict(imu_command))
 
@@ -198,7 +196,7 @@ class OnlineDataWrapper:
         """
         if data is None:
             return None
-        return model.predict(data)
+        return self.mw.predict(data)
 
     def get_live_labels(self):
         """
@@ -295,23 +293,35 @@ class OnlineDataWrapper:
         self.odh.visualize()
 
 
-if __name__ == "__main__":
-    import time
+def __main():
     import configs as g
 
-    sensor = EmgSensor(EmgSensorType.BioArmband)
-    paths = NfcPaths(f"data/{sensor.get_name()}")
-    model = models.get_scnn(paths.model, sensor.emg_shape)
+    GESTURE_IDS = [1, 2, 3, 4, 5, 17, 18]
+    SENSOR = EmgSensorType.BioArmband
+
+    sensor = EmgSensor(SENSOR)
+
+    paths = NfcPaths(f"data/{sensor.get_name()}_wrist")
+    mw = models.get_scnn(paths.model, sensor.emg_shape)
+
+    models.main_finetune_scnn(
+        mw, sensor, paths.fine, False, GESTURE_IDS, paths.gestures
+    )
+    models.save_scnn(mw, paths.model)
 
     odw = OnlineDataWrapper(
         sensor,
-        model,
+        mw,
         paths,
-        [1, 2, 3, 4, 5, 8, 14, 26, 30],
-        g.ACCELERATOR,
+        GESTURE_IDS,
+        "cpu",
         g.PEUDO_LABELS_PORT,
         g.PREDS_IP,
         g.PREDS_PORT,
     )
     # odw.visualize_emg()
     odw.run()
+
+
+if __name__ == "__main__":
+    __main()

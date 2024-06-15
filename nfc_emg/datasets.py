@@ -23,7 +23,7 @@ def process_data(data: np.ndarray, sensor: EmgSensor):
     if sensor.sensor_type == EmgSensorType.BioArmband:
         data *= 1e3
     data = np.abs(sensor.reorder(data))
-    data = moving_average(data, sensor.moving_avg_n)
+    # data = moving_average(data, sensor.moving_avg_n)
     return data.astype(np.float32)
 
 
