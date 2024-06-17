@@ -5,7 +5,7 @@
 groups = ["default"]
 strategy = ["cross_platform", "inherit_metadata"]
 lock_version = "4.4.1"
-content_hash = "sha256:e6daf58518255acb73d9589dd77362227089a35bb3c9b79ea2d3dd8913e745ca"
+content_hash = "sha256:30aaf32dd5f2be949e8773e86bc911a813bcb1d0149b4428a94fbf2ae654d878"
 
 [[package]]
 name = "aiohttp"
@@ -785,25 +785,25 @@ files = [
 
 [[package]]
 name = "lightning"
-version = "2.2.5"
+version = "2.3.0"
 requires_python = ">=3.8"
 summary = "The Deep Learning framework to train, deploy, and ship AI products Lightning fast."
 groups = ["default"]
 dependencies = [
     "PyYAML<8.0,>=5.4",
-    "fsspec[http]<2025.0,>=2022.5.0",
+    "fsspec[http]<2026.0,>=2022.5.0",
     "lightning-utilities<2.0,>=0.8.0",
     "numpy<3.0,>=1.17.2",
     "packaging<25.0,>=20.0",
     "pytorch-lightning",
-    "torch<4.0,>=1.13.0",
+    "torch<4.0,>=2.0.0",
     "torchmetrics<3.0,>=0.7.0",
     "tqdm<6.0,>=4.57.0",
     "typing-extensions<6.0,>=4.4.0",
 ]
 files = [
-    {file = "lightning-2.2.5-py3-none-any.whl", hash = "sha256:3fd4d37c5f912b000b922f36d4c06818de42b78f85178c2ad3e35b8af3e9218a"},
-    {file = "lightning-2.2.5.tar.gz", hash = "sha256:a6c31a2052fc30fee34aec7e31ea2a117a005d049c3593fc9cfb867a34f962bf"},
+    {file = "lightning-2.3.0-py3-none-any.whl", hash = "sha256:ed66c2053be1295c8452b996b719badf5a26a0652607c121103dfdd5d2dccfae"},
+    {file = "lightning-2.3.0.tar.gz", hash = "sha256:4bb4d6e3650d2d5f544ad60853a22efc4e164aa71b9596d13f0454b29df05130"},
 ]
 
 [[package]]

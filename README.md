@@ -2,6 +2,14 @@
 
 This project investigates the implementation of a self-supervised EMG gesture recognition system with the help of contextual information.
 
+## Set up
+
+Clone this repository, then:
+
+- `python3 -m venv .venv`
+- `source .venv/bin/activate`
+- `python3 -m pip install -e ./`
+
 ## Using nfc-emg
 
 Leveraging LibEMG, we reuse the paradigm of a hardware-agnostic _OnlineDataHandler_ reading in live data from a UDP _streamer_.
