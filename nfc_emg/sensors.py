@@ -16,7 +16,8 @@ class EmgSensor:
         sensor_type: EmgSensorType,
         notch_freq: int = 50,
         bandpass_freqs: tuple = (20, 450),
-        moving_average_ms: int = 25,
+        window_size_ms: int = 25,
+        window_inc_ms: int = 10,
         majority_vote_ms: int = 200,
     ):
         self.sensor_type = sensor_type
@@ -32,8 +33,10 @@ class EmgSensor:
 
         self.notch_freq = notch_freq
         self.bandpass_freqs = bandpass_freqs
-        self.set_moving_average(moving_average_ms)
+        self.set_window_size(window_size_ms)
+        self.set_window_increment(window_inc_ms)
         self.set_majority_vote(majority_vote_ms)
+
         self.p = None
 
     def get_name(self):
@@ -64,19 +67,23 @@ class EmgSensor:
 
         return self.p
 
-    def reorder(self, data: np.ndarray):
-        """Reorder EMG data.
+    def stop_streamer(self):
+        """Stop the streamer for the device"""
+        if self.p is not None:
+            self.p.terminate()
+            self.p = None
 
-        Args:
-            data (np.ndarray): 3 or 4D array of EMG data (N[, 1], H, W)
+    def set_window_size(self, ms: int):
+        self.window_size = (ms * self.fs) // 1000
+
+    def set_window_increment(self, ms: int):
         """
-        if self.sensor_type == EmgSensorType.BioArmband:
-            return data[..., [4, 6, 3, 0, 7, 1, 2, 5]]
+        Set window increment. If ms is 0, set to 1 sample.
+        """
+        if ms == 0:
+            self.window_increment = 1
         else:
-            return data
+            self.window_increment = (ms * self.fs) // 1000
 
     def set_majority_vote(self, ms: int):
-        self.maj_vote_n = (ms * self.fs) // 1000
-
-    def set_moving_average(self, ms: int):
-        self.moving_avg_n = (ms * self.fs) // 1000
+        self.maj_vote_n = (ms * self.fs) // (1000 * self.window_increment)

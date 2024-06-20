@@ -1,23 +1,21 @@
-from typing import Iterable
-
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import lightning as L
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
+from typing import Iterable
 
 from sklearn.metrics import accuracy_score
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.pipeline import make_pipeline
 from sklearn.utils import shuffle
 from sklearn.base import BaseEstimator
-from sklearn.model_selection import train_test_split
 
 from libemg.offline_metrics import OfflineMetrics
+from libemg.emg_classifier import EMGClassifier
+from libemg.feature_extractor import FeatureExtractor
 
 from emager_py.majority_vote import majority_vote
-
 
 from nfc_emg import datasets, utils
 from nfc_emg.sensors import EmgSensor, EmgSensorType
@@ -202,14 +200,18 @@ class EmgSCNN(L.LightningModule):
 
 
 class CosineSimilarity(BaseEstimator):
-    def __init__(self):
+    def __init__(self, num_classes: int | None = None, dims: int | None = None):
         """
         Create a cosine similarity classifier.
         """
         super().__init__()
 
-        self.features = None
-        self.n_samples = 0
+        if num_classes is not None:
+            self.features = np.zeros((num_classes, dims))
+            self.n_samples = np.zeros(num_classes)
+        else:
+            self.features = None
+            self.n_samples = None
 
     def __cosine_similarity(self, X, labels: bool):
         dists = cosine_similarity(X, self.features)
@@ -226,18 +228,28 @@ class CosineSimilarity(BaseEstimator):
         """
         if self.features is None:
             self.features = np.zeros((len(np.unique(y)), X.shape[1]))
+            self.n_samples = np.zeros(len(np.unique(y)))
 
-        tmp_features = self.features.copy() * self.n_samples
-        for i in range(len(y)):
-            tmp_features[y[i]] += X[i]
-        self.n_samples += len(y)
-        self.features = tmp_features / self.n_samples
+        tmp_features = self.features
+        for i in range(len(self.features)):
+            tmp_features[i] *= self.n_samples[i]
+
+        for c in np.unique(y):
+            c_labels = y == c
+            self.n_samples[c] += len(c_labels)
+            tmp_features[c] += np.sum(X[c_labels], axis=0)
+
+        for i in range(len(self.features)):
+            if self.n_samples[i] == 0:
+                continue
+            self.features = tmp_features / self.n_samples[i]
 
     def predict(self, X):
         return self.__cosine_similarity(X, True)
 
     def predict_proba(self, X):
-        return self.__cosine_similarity(X, False)
+        dists = self.__cosine_similarity(X, False)
+        return (dists + 1) / 2.0  # scale [-1, 1] to [0, 1]
 
 
 class EmgSCNNWrapper:
@@ -276,6 +288,7 @@ class EmgSCNNWrapper:
             x = x.reshape(-1, 1, *x.shape[1:])
         elif len(x.shape) == 2:
             x = x.reshape(-1, 1, 1, x.shape[1])
+        x = x.float()
         with torch.no_grad():
             return self.model(x).cpu().detach().numpy()
 
@@ -287,6 +300,7 @@ class EmgSCNNWrapper:
             x: numpy data that is passed through the CNN before fitting
             y: labels
         """
+        self.model.eval()
         embeddings = self.predict_embeddings(x)
         self.classifier.fit(embeddings, y)
 
@@ -297,6 +311,45 @@ class EmgSCNNWrapper:
     def predict(self, x):
         embeddings = self.predict_embeddings(x)
         return self.classifier.predict(embeddings)
+
+    @staticmethod
+    def load_from_disk(model_path: str, emg_shape: tuple, accelerator: str = "cpu"):
+        """
+        Load an SCNN model from disk in evaluation mode.
+        """
+        chkpt = torch.load(model_path)
+
+        model = EmgSCNN(emg_shape)
+        model.load_state_dict(chkpt["model_state_dict"])
+        model.to(accelerator)
+        model.eval()
+
+        mw = EmgSCNNWrapper(model, chkpt["classifier"])
+        mw.mean = chkpt["mean"]
+        mw.std = chkpt["std"]
+
+        print(
+            f"Loaded SCNN model from {model_path}. Classifier is {mw.classifier.__class__.__name__}"
+        )
+
+        return mw
+
+    def save_to_disk(self, model_path: str):
+        """
+        Save the SCNN model to disk.
+        """
+        torch.save(
+            {
+                "model_state_dict": self.model.state_dict(),
+                "classifier": self.classifier,
+                "mean": self.mean,
+                "std": self.std,
+            },
+            model_path,
+        )
+        print(
+            f"Saved SCNN model to {model_path}. Classifier is {self.classifier.__class__.__name__}"
+        )
 
 
 def get_model(model_path: str, emg_shape: tuple, num_classes: int, finetune: bool):
@@ -312,44 +365,9 @@ def get_model(model_path: str, emg_shape: tuple, num_classes: int, finetune: boo
     return model.eval()
 
 
-def save_scnn(mw: EmgSCNNWrapper, out_path: str):
-    print(
-        f"Saving SCNN model to {out_path}. Classifier is {mw.classifier.__class__.__name__}"
-    )
-    torch.save(
-        {
-            "model_state_dict": mw.model.state_dict(),
-            "classifier": mw.classifier,
-            "mean": mw.mean,
-            "std": mw.std,
-        },
-        out_path,
-    )
-
-
 def save_cnn(model: EmgCNN, out_path: str):
     print(f"Saving CNN model to {out_path}.")
     torch.save("model_state_dict", model.state_dict(), out_path)
-
-
-def get_scnn(model_path: str, emg_shape: tuple, accelerator: str = "cpu"):
-    """
-    Load an SCNN model.
-    """
-    chkpt = torch.load(model_path)
-
-    model = EmgSCNN(emg_shape).to(accelerator)
-    model.load_state_dict(chkpt["model_state_dict"])
-
-    mw = EmgSCNNWrapper(model, chkpt["classifier"])
-    mw.mean = chkpt["mean"]
-    mw.std = chkpt["std"]
-
-    print(
-        f"Loaded SCNN model from {model_path}. Classifier is {mw.classifier.__class__.__name__}"
-    )
-
-    return mw
 
 
 def train_cnn(
@@ -380,7 +398,7 @@ def train_cnn(
     train_odh = odh.isolate_data("reps", train_reps)
     test_odh = odh.isolate_data("reps", test_reps)
 
-    data, labels = datasets.prepare_data(train_odh, sensor, 1, 1)
+    data, labels = datasets.prepare_data(train_odh, sensor)
     train_loader = datasets.get_dataloader(data, labels, 64, True)
 
     model.train()
@@ -391,7 +409,7 @@ def train_cnn(
     trainer.fit(model, train_loader)
 
     if len(test_reps) > 0:
-        data, labels = datasets.prepare_data(test_odh, sensor, 1, 1)
+        data, labels = datasets.prepare_data(test_odh, sensor)
         test_loader = datasets.get_dataloader(data, labels, 128, False)
         trainer.test(model, test_loader)
 
@@ -404,57 +422,50 @@ def train_scnn(
     data_dir: str,
     classes: list,
     train_reps: list,
-    test_reps: list,
+    val_reps: list,
 ):
-    """Train a SCNN model
-
-    Args:
-        data_dir (str): directory of pre-recorded data
-        classes: class ids (CIDs)
-        train_reps (list): which repetitions to train on
-        test_reps (list): which repetitions to test on (can be empty)
-        n_triplets (int): number of triplets to generate
+    """
+    Train a SCNN model
 
     Returns the trained model
     """
-    if not isinstance(train_reps, list):
+    if not isinstance(train_reps, Iterable):
         train_reps = [train_reps]
-    if not isinstance(test_reps, list):
-        test_reps = [test_reps]
+    if not isinstance(val_reps, Iterable):
+        val_reps = [val_reps]
 
-    odh = datasets.get_offline_datahandler(data_dir, classes, train_reps + test_reps)
+    odh = datasets.get_offline_datahandler(data_dir, classes, train_reps + val_reps)
 
     train_odh = odh.isolate_data("reps", train_reps)
-    test_odh = odh.isolate_data("reps", test_reps)
+    val_odh = odh.isolate_data("reps", val_reps)
 
     # Generate triplets and train
-    num_triplets = 0
-    for f in train_odh.data:
-        num_triplets += len(f)
+    fe = FeatureExtractor()
 
-    train_data, train_labels = datasets.prepare_data(train_odh, sensor, 1, 1)
+    train_windows, train_labels = datasets.prepare_data(train_odh, sensor)
+    train_data = fe.extract_features(["MAV"], train_windows, array=True)
+    train_data = np.reshape(train_data, (-1, *sensor.emg_shape)).astype(np.float32)
     train_data = mw.set_normalize(train_data)
+
+    val_windows, val_labels = datasets.prepare_data(val_odh, sensor)
+    val_data = fe.extract_features(["MAV"], val_windows, array=True)
+    val_data = np.reshape(val_data, (-1, *sensor.emg_shape)).astype(np.float32)
+    val_data = mw.normalize(val_data)
+
     train_loader = datasets.get_triplet_dataloader(
-        train_data, train_labels, 64, True, num_triplets // (3 * len(classes))
+        train_data, train_labels, 64, True, len(train_data) // (3 * len(classes))
+    )
+    val_loader = datasets.get_triplet_dataloader(
+        val_data, val_labels, 256, False, len(val_data) // (3 * len(classes))
     )
 
-    mw.model.train()
     trainer = L.Trainer(
         max_epochs=10,
         callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
         deterministic=True,
     )
-    trainer.fit(mw.model, train_loader)
+    trainer.fit(mw.model, train_loader, val_loader)
     mw.model.eval()
-
-    if len(test_reps) > 0:
-        test_data, test_labels = datasets.prepare_data(test_odh, sensor, 1, 1)
-        test_data, test_labels = shuffle(test_data, test_labels)
-        mw.fit(test_data, test_labels)
-        preds = mw.predict(test_data)
-        acc = accuracy_score(test_labels, preds)
-        print(f"Test accuracy: {acc:.2f}")
-
     return mw
 
 
@@ -491,32 +502,22 @@ def main_train_scnn(
     gestures_list: list,
     gestures_dir: str,
     classifier: BaseEstimator,
-    model_out_path: str,
 ):
     if sample_data:
-        sensor.start_streamer()
-        odh = utils.get_online_data_handler(
-            sensor.fs,
-            sensor.bandpass_freqs,
-            sensor.notch_freq,
-            False,
-            False if sensor.sensor_type == EmgSensorType.BioArmband else True,
-        )
-        utils.screen_guided_training(odh, gestures_list, gestures_dir, 5, 5, data_dir)
+        utils.do_sgt(sensor, gestures_list, gestures_dir, data_dir, 5, 3)
 
     classes = utils.get_cid_from_gid(gestures_dir, data_dir, gestures_list)
     reps = utils.get_reps(data_dir)
     if len(reps) == 1:
         train_reps = reps
-        test_reps = []
+        val_reps = []
     else:
         train_reps = reps[: int(0.8 * len(reps))]
-        test_reps = reps[int(0.8 * len(reps)) :]
+        val_reps = reps[int(0.8 * len(reps)) :]
 
     model = EmgSCNN(sensor.emg_shape)
     mw = EmgSCNNWrapper(model, classifier)
-    mw = train_scnn(mw, sensor, data_dir, classes, train_reps, test_reps)
-    save_scnn(mw, model_out_path)
+    mw = train_scnn(mw, sensor, data_dir, classes, train_reps, val_reps)
     return mw
 
 
@@ -529,30 +530,20 @@ def main_finetune_scnn(
     gestures_dir: str,
 ):
     if sample_data:
-        sensor.start_streamer()
-        odh = utils.get_online_data_handler(
-            sensor.fs,
-            sensor.bandpass_freqs,
-            sensor.notch_freq,
-            False,
-            False if sensor.sensor_type == EmgSensorType.BioArmband else True,
-        )
-        utils.screen_guided_training(odh, gestures_list, gestures_dir, 1, 5, data_dir)
-        odh.stop_listening()
+        utils.do_sgt(sensor, gestures_list, gestures_dir, data_dir, 1, 2)
 
     classes = utils.get_cid_from_gid(gestures_dir, data_dir, gestures_list)
     reps = utils.get_reps(data_dir)
 
-    odh = datasets.get_offline_datahandler(data_dir, classes, reps)
-    data, labels = datasets.prepare_data(odh, sensor, 1, 1)
+    fe = FeatureExtractor()
 
-    train_data, test_data, train_labels, test_labels = train_test_split(
-        data, labels, test_size=0.2, shuffle=True
-    )
+    odh = datasets.get_offline_datahandler(data_dir, classes, reps)
+    data_windows, labels = datasets.prepare_data(odh, sensor)
+    data = fe.extract_features(["MAV"], data_windows, array=True)
+    data = data.reshape(-1, *sensor.emg_shape).astype(np.float32)
 
     # Fit classifier
-    mw.model.eval()
-    mw.fit(train_data, train_labels)
+    mw.fit(data, labels)
     return mw
 
 
@@ -565,47 +556,52 @@ def main_test_scnn(
     gestures_dir: str,
 ):
     if sample_data:
-        sensor.start_streamer()
-        odh = utils.get_online_data_handler(
-            sensor.fs,
-            sensor.bandpass_freqs,
-            sensor.notch_freq,
-            False,
-            False if sensor.sensor_type == EmgSensorType.BioArmband else True,
-        )
-        utils.screen_guided_training(odh, gestures_list, gestures_dir, 2, 5, data_dir)
-        odh.stop_listening()
+        utils.do_sgt(sensor, gestures_list, gestures_dir, data_dir, 2, 3)
 
     classes = utils.get_cid_from_gid(gestures_dir, data_dir, gestures_list)
+    idle_id = utils.map_gid_to_cid(gestures_dir, data_dir)[1]
     reps = utils.get_reps(data_dir)
 
+    fe = FeatureExtractor()
+
     odh = datasets.get_offline_datahandler(data_dir, classes, reps)
-    test_data, test_labels = datasets.prepare_data(odh, sensor, 1, 1)
-    idle_id = utils.map_gid_to_cid(gestures_dir, data_dir)[1]
+    data_windows, test_labels = datasets.prepare_data(odh, sensor)
+    data = fe.extract_features(["MAV"], data_windows, array=True)
+    data = data.reshape(-1, *sensor.emg_shape).astype(np.float32)
 
     mw.model.eval()
-    preds = mw.predict(test_data)
+
+    preds = mw.predict(data)
     preds_maj = majority_vote(preds, sensor.maj_vote_n)
 
+    acc = accuracy_score(test_labels, preds)
+    acc_maj = accuracy_score(test_labels, preds_maj)
+    print("Raw accuracy:", acc * 100)
+    print("Majority vote accuracy:", acc_maj * 100)
+
+    classifier = EMGClassifier()
+    classifier.classifier = mw
+    classifier.add_majority_vote(sensor.maj_vote_n)
+    # classifier.add_rejection(0.8)
+
+    preds, _ = classifier.run(data)
     # for i in range(len(set(test_labels))):
     #     print(set(preds[test_labels == i]))
     # print(set(preds))
 
-    # acc = accuracy_score(test_labels, preds)
-    # print(acc)
-
+    # https://libemg.github.io/libemg/documentation/evaluation/evaluation.html
     om = OfflineMetrics()
-    metrics = ["CA", "AER", "INS", "REJ_RATE", "CONF_MAT", "RECALL", "PREC", "F1"]
+    metrics = ["CA", "AER", "REJ_RATE", "CONF_MAT", "RECALL", "PREC"]
 
     results = om.extract_offline_metrics(
         metrics, test_labels, preds, null_label=idle_id
     )
-    results_maj = om.extract_offline_metrics(
-        metrics, test_labels, preds_maj, null_label=idle_id
-    )
-    print(f"CA RAW: {results['CA']}")
-    print(f"CA MAJ: {results_maj['CA']}")
-    return results_maj
+
+    for key in results:
+        if key == "CONF_MAT":
+            continue
+        print(f"{key}: {results[key]}")
+    return results
 
 
 def main_cnn(
@@ -618,14 +614,7 @@ def main_cnn(
     model_out_path: str,
 ):
     if sample_data:
-        sensor.start_streamer()
-        odh = utils.get_online_data_handler(
-            sensor.fs, notch_freq=sensor.notch_freq, imu=False
-        )
-        utils.screen_guided_training(
-            odh, gestures_list, gestures_dir, 1 if finetune else 5, 5, data_dir
-        )
-        odh.stop_listening()
+        utils.do_sgt(sensor, gestures_list, gestures_dir, data_dir, 5, 5)
 
     classes = utils.get_cid_from_gid(gestures_dir, data_dir, gestures_list)
     reps = utils.get_reps(data_dir)
@@ -655,16 +644,7 @@ def main_test_cnn(
     gestures_dir: str,
 ):
     if sample_data:
-        sensor.start_streamer()
-        odh = utils.get_online_data_handler(
-            sensor.fs,
-            sensor.bandpass_freqs,
-            sensor.notch_freq,
-            False,
-            False if sensor.sensor_type == EmgSensorType.BioArmband else True,
-        )
-        utils.screen_guided_training(odh, gestures_list, gestures_dir, 2, 5, data_dir)
-        odh.stop_listening()
+        utils.do_sgt(sensor, gestures_list, gestures_dir, data_dir, 2, 3)
 
     classes = utils.get_cid_from_gid(gestures_dir, data_dir, gestures_list)
     reps = utils.get_reps(data_dir)

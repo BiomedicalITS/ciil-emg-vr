@@ -7,6 +7,8 @@ from libemg.data_handler import OnlineDataHandler
 from libemg.screen_guided_training import ScreenGuidedTraining
 from libemg.filtering import Filter
 
+from nfc_emg.sensors import EmgSensor, EmgSensorType
+
 
 def get_most_recent_checkpoint(lightning_logs_path: str = "./lightning_logs") -> str:
     max = 0
@@ -33,6 +35,13 @@ def get_reps(path: str):
     Get all recorded repetitions from a directory (R_*)
     """
     return list(set([int(f.split("_")[1]) for f in os.listdir(path) if "R_" in f]))
+
+
+def reverse_dict(d: dict):
+    """
+    Reverse a dictionary (key: value -> value: key)
+    """
+    return {v: k for k, v in d.items()}
 
 
 def map_gid_to_name(gesture_img_dir: str, gids=None):
@@ -205,6 +214,29 @@ def get_online_data_handler(
     return odh
 
 
+def do_sgt(
+    sensor: EmgSensor,
+    gestures_list: list,
+    gestures_dir: str,
+    data_dir: str,
+    num_reps: int,
+    rep_time: int,
+):
+    sensor.start_streamer()
+    odh = get_online_data_handler(
+        sensor.fs,
+        sensor.bandpass_freqs,
+        sensor.notch_freq,
+        False,
+        False if sensor.sensor_type == EmgSensorType.BioArmband else True,
+    )
+    screen_guided_training(
+        odh, gestures_list, gestures_dir, num_reps, rep_time, data_dir
+    )
+    odh.stop_listening()
+    sensor.stop_streamer()
+
+
 def screen_guided_training(
     odh: OnlineDataHandler,
     gestures_id_list: list,
@@ -263,6 +295,17 @@ def screen_guided_training(
         output_folder=out_data_dir,
         **kwargs,
     )
+
+
+def save_eval_results(results: dict, path: str):
+    """
+    Save evaluation results from LibEMG OfflineMetrics
+    """
+    with open(path, "w") as f:
+        tmp_results = results.copy()
+        tmp_results["CONF_MAT"] = 0
+        json.dump(tmp_results, f, indent=4)
+    return tmp_results
 
 
 if __name__ == "__main__":

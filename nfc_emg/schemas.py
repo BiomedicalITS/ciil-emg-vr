@@ -1,4 +1,5 @@
 from enum import IntEnum
+from nfc_emg import utils
 
 
 class GenericControl(IntEnum):
@@ -41,6 +42,26 @@ class GripperControl(GenericControl):
     NEUTRAL = 0
     CLOSE = 1
     OPEN = 2
+
+
+class ObjectShape(IntEnum):
+    BUTTON = 0  # most likely index extension
+    CYLINDRICAL_THIN = 1  # most likely pinch or can be grip
+    CYLINDRICAL_THICK = 2  # most likely grip
+    FLAT_THIN = 3  # most likely chuck grip or hand open
+
+    @staticmethod
+    def get_possible_gestures(name_to_cid: dict, val: int):
+        if val == ObjectShape.BUTTON:
+            return (name_to_cid["Index_Extension"],)
+        elif val == ObjectShape.CYLINDRICAL_THIN:
+            return (name_to_cid["Index_Pinch"], name_to_cid["Hand_Close"])
+        elif val == ObjectShape.CYLINDRICAL_THICK:
+            return (name_to_cid["Hand_Close"], name_to_cid["Index_Pinch"])
+        elif val == ObjectShape.FLAT_THIN:
+            return (name_to_cid["Chuck_Grip"], name_to_cid["Hand_Open"])
+        else:
+            return tuple()
 
 
 def from_dict(d: dict):

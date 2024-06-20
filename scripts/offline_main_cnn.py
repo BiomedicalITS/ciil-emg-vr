@@ -21,7 +21,6 @@ def __main():
     TRAIN_GESTURE_IDS = [1, 2, 3, 8, 14, 26, 30]
 
     sensor = EmgSensor(SENSOR)
-    sensor.set_majority_vote(200)
     paths = NfcPaths("data/" + sensor.get_name())
     paths.model = paths.model.replace("model", "model_cnn")
 
