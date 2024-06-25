@@ -7,7 +7,7 @@ from libemg.feature_extractor import FeatureExtractor
 from nfc_emg import utils
 from nfc_emg.sensors import EmgSensor, EmgSensorType
 from nfc_emg.paths import NfcPaths
-from nfc_emg.models import EmgCNN, main_train_nn, main_test_nn, get_model
+from nfc_emg.models import EmgCNN, main_train_nn, main_test_nn, get_model_cnn
 
 import configs as g
 

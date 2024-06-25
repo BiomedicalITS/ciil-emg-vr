@@ -35,7 +35,7 @@ if __name__ == "__main__":
         paths,
         gesture_ids,
         False,
-        c.PEUDO_LABELS_PORT,
+        c.PSEUDO_LABELS_PORT,
         c.PREDS_PORT,
         c.PREDS_IP,
     )

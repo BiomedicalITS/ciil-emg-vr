@@ -121,12 +121,13 @@ class EmgCNN(L.LightningModule):
         return optimizer
 
     def convert_input(self, x):
+        x = self.scaler.transform(x)
         if not isinstance(x, torch.Tensor):
             x = torch.from_numpy(x).to(self.device)
         if len(x.shape) == 3:
-            x = x.reshape(-1, 1, *x.shape[1:])
+            x = x.reshape(-1, self.num_channels, *x.shape[1:])
         elif len(x.shape) == 2:
-            x = x.reshape(-1, 1, 1, x.shape[1])
+            x = x.reshape(-1, self.num_channels, 1, x.shape[1])
         return x
 
     def predict(self, x):
@@ -155,7 +156,6 @@ class EmgCNN(L.LightningModule):
                 f"Setting to {num_classes} classes from {self.classifier.out_features}"
             )
             self.classifier = nn.Linear(self.classifier.in_features, num_classes)
-
 
 class EmgMLP(L.LightningModule):
     def __init__(self, num_features, num_classes):
@@ -197,6 +197,7 @@ class EmgMLP(L.LightningModule):
         Returns:
             _type_: _description_
         """
+        x = self.scaler.transform(x)
         if not isinstance(x, torch.Tensor):
             x = torch.from_numpy(x)
         return x.type(torch.float32).to(self.device)
@@ -481,24 +482,38 @@ class EmgSCNNWrapper:
         )
 
 
-def get_model(model_path: str, emg_shape: tuple, num_classes: int, finetune: bool):
+def save_nn(model: L.LightningModule, out_path: str):
+    print(f"Saving CNN model to {out_path}.")
+    torch.save({"model_state_dict": model.state_dict(), "scaler": model.scaler}, out_path)
+
+def load_mlp(model_path: str):
     """
-    Load a model checkpoint from path and return it
+    Load a model checkpoint from path and return it, including the StandardScaler
     """
     print(f"Loading model from {model_path}")
     chkpt = torch.load(model_path)
-    n_classes = chkpt["classifier.weight"].shape[0]
-    model = EmgCNN(emg_shape, n_classes)
-    model.load_state_dict(chkpt)
-    model.set_finetune(finetune, num_classes)
+    s_dict = chkpt["model_state_dict"]
+    n_input = s_dict["feature_extractor.1.weight"].shape[1]
+    n_classes = s_dict["classifier.weight"].shape[0]
+    model = EmgMLP(n_input, n_classes)
+    model.load_state_dict(s_dict)
+    model.scaler = chkpt["scaler"]
     return model.eval()
 
-
-def save_nn(model: L.LightningModule, out_path: str):
-    print(f"Saving CNN model to {out_path}.")
-    torch.save("model_state_dict", model.state_dict(), out_path)
-
-
+def load_cnn(model_path: str, num_channels: int, emg_shape: tuple, finetune: bool):
+    """
+    Load a model checkpoint from path and return it, including the StandardScaler
+    """
+    print(f"Loading model from {model_path}")
+    chkpt = torch.load(model_path)
+    s_dict = chkpt["model_state_dict"]
+    n_classes = s_dict["classifier.weight"].shape[0]
+    model = EmgCNN(num_channels, emg_shape, n_classes)
+    model.load_state_dict(s_dict)
+    model.scaler = chkpt["scaler"]
+    model.set_finetune(finetune, n_classes)
+    return model.eval()
+    
 def train_nn(
     model: EmgCNN | EmgMLP,
     sensor: EmgSensor,
@@ -616,7 +631,7 @@ def main_train_nn(
         test_reps = reps[int(0.8 * len(reps)) :]
 
     model = train_nn(model, sensor, features, data_dir, classes, train_reps, test_reps)
-    torch.save(model.state_dict(), model_out_path)
+    save_nn(model, model_out_path)
     return model
 
 

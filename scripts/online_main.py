@@ -3,16 +3,15 @@ import time
 import json
 
 import numpy as np
-from pyquaternion import Quaternion
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from tqdm import tqdm
+
+from libemg.feature_extractor import FeatureExtractor
+from libemg.data_handler import get_windows
 
 from emager_py import majority_vote
-from emager_py.data_processing import cosine_similarity
 
 from nfc_emg import utils, models, datasets, schemas as s
 from nfc_emg.sensors import EmgSensor, EmgSensorType
-from nfc_emg.models import EmgCNN, EmgSCNNWrapper
+from nfc_emg.models import EmgCNN, EmgSCNNWrapper, EmgMLP
 from nfc_emg.paths import NfcPaths
 
 
@@ -21,9 +20,9 @@ class OnlineDataWrapper:
         self,
         sensor: EmgSensor,
         mw: EmgSCNNWrapper | EmgCNN,
+        features: list,
         paths: NfcPaths,
         gestures_id_list: list,
-        use_imu: bool,
         pseudo_labels_port: int = 5111,
         preds_ip: str = "127.0.0.1",
         preds_port: int = 5112,
@@ -39,19 +38,21 @@ class OnlineDataWrapper:
             - accelerator: str, the device to run the model on ("cuda", "mps", "cpu", etc)
         """
 
-        self.use_imu = use_imu
         self.sensor = sensor
         self.paths = paths
         self.odh = utils.get_online_data_handler(
             sensor.fs,
             sensor.bandpass_freqs,
             sensor.notch_freq,
-            use_imu,
+            False,
             False if sensor.sensor_type == EmgSensorType.BioArmband else True,
             max_buffer=sensor.fs,
         )
 
         self.sensor.start_streamer()
+
+        self.fe = FeatureExtractor()
+        self.fg = features
 
         self.pl_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.pl_socket.bind(("127.0.0.1", pseudo_labels_port))
@@ -64,7 +65,7 @@ class OnlineDataWrapper:
 
         self.emg_buffer_size = self.sensor.fs
         self.emg_buffer = np.zeros(
-            (self.emg_buffer_size, *self.sensor.emg_shape), np.float32
+            (self.emg_buffer_size, np.prod(self.sensor.emg_shape)), np.float32
         )
 
         self.voter = majority_vote.MajorityVote(self.sensor.maj_vote_n)
@@ -75,24 +76,12 @@ class OnlineDataWrapper:
         )
         self.name_to_cid = utils.reverse_dict(utils.map_cid_to_name(paths.train))
 
-        if self.use_imu:
-            self.arm_movement_list = s.ArmControl._member_names_
-            self.arm_calib_data = np.zeros((len(self.arm_movement_list), 4))
-            self.arm_calib_deadzones = [0] * len(self.arm_movement_list)
-            self.calibrate_imu()
-            self.save_calibration_data()
-
     def run(self, timeout=60):
-        last_arm_cmd = None
         start = time.time()
         while time.time() - start < timeout:
             t0 = time.perf_counter()
 
-            if self.use_imu:
-                quats = self.get_imu_data("quat", 5)
-                imu_command = self.get_arm_movement(quats)
-
-            emg_data = self.get_emg_data(True, self.sensor.window_size)
+            emg_data = self.get_emg_data()
             preds = self.predict(emg_data)
 
             if emg_data is not None:
@@ -121,79 +110,18 @@ class OnlineDataWrapper:
                 print(f"Gesture {self.class_names[maj_vote]} ({maj_vote})")
                 print(f"Time taken {time.perf_counter() - t0:.4f} s")
 
-            if self.use_imu and imu_command is not None and imu_command != last_arm_cmd:
-                # Send commands for arm, wrist, gripper
-                print(f"Arm: {imu_command.name}")
-                last_arm_cmd = imu_command
-                self.send_robot_command(s.to_dict(imu_command))
-
         print(f"Experiment finished after {timeout} s. Exiting.")
 
-    def get_imu_data(self, channel: str, sample_windows: int = 1):
-        """
-        Get IMU quaternions, return the attitude readings. Clear the odh buffer.
-
-        Params:
-            - channel: str, "quat", "acc" or "both"
-
-        If channel is "quat", the quaternions are normalized.
-        """
-
-        start, end = 0, 4
-        if channel == "acc":
-            start, end = 4, 7
-        elif channel == "both":
-            start, end = 0, 7
-
-        odata = self.odh.get_imu_data()  # (n_samples, n_ch)
-        if len(odata) < sample_windows:
-            return None
-        self.odh.raw_data.reset_imu()
-        if self.sensor.sensor_type == EmgSensorType.BioArmband:
-            # myo is (quat, acc, gyro)
-            # bio is (acc, quat)
-            odata = np.roll(odata, 4, axis=1)
-        vals = odata[:, start:end]
-        if channel == "quat":
-            vals = vals / np.linalg.norm(vals, axis=1, keepdims=True)
-        return vals
-
-    def get_arm_movement(self, quats: np.ndarray):
-        """Get the movement from quaternions.
-
-        Params:
-            - quats: np.ndarray, shape (n, 4): The quaternions to process.
-
-        Returns the arm position. None if quats is empty.
-        """
-        if quats is None:
-            return None
-
-        quats = np.mean(quats, axis=0, keepdims=True)
-        sim_score = cosine_similarity(quats, self.arm_calib_data, False)
-        id = np.argmax(sim_score, axis=1).item(0)
-        distance = Quaternion.absolute_distance(
-            Quaternion(quats.T), Quaternion(self.arm_calib_data[0].T)
-        )
-        if distance < self.arm_calib_deadzones[id]:
-            # Inside of dead zone so assume neutral
-            return s.ArmControl[self.arm_movement_list[0]]
-        return s.ArmControl[self.arm_movement_list[id]]
-
-    def get_emg_data(self, process: bool, sample_windows: int):
+    def get_emg_data(self):
         """Get EMG data.
 
         Returns None if no new data. Otherwise the data with shape (n_samples, *emg_shape)
         """
         odata = self.odh.get_data()
-        if len(odata) < sample_windows:
+        if len(odata) < self.sensor.window_size:
             return None
         self.odh.raw_data.reset_emg()
-
-        data = np.reshape(odata, (-1, *self.sensor.emg_shape))
-        if process:
-            data = datasets.process_data(data, self.sensor)
-        return data
+        return odata
 
     def predict(self, data: np.ndarray):
         """Infer embeddings from the given data.
@@ -206,7 +134,9 @@ class OnlineDataWrapper:
         """
         if data is None:
             return None
-        return self.mw.predict(data)
+        windows = get_windows(data, self.sensor.window_size, self.sensor.window_increment)
+        features = self.fe.extract_features(self.fg, windows, array=True)
+        return self.mw.predict(features)
 
     def get_live_labels(self):
         """
@@ -224,95 +154,29 @@ class OnlineDataWrapper:
         """
         self.preds_socket.sendto(bytes([label]), self.preds_sock)
 
-    def send_robot_command(self, cmd: dict):
-        """
-        Send the robot command to the robot.
-        """
-        self.preds_socket.sendto(json.dumps(cmd).encode(), self.preds_sock)
-
-    def calibrate_imu(self, n_samples=100):
-        """
-        Ask to move the arm in 3d space. For each "axis" covered, take the mean quaternion.
-
-        Thus, for each arm movement we obtain a triplet of pitch, yaw, roll. Save it.
-
-        Then cosine similarity to find the most approprite axis.
-        """
-
-        ans = input("Do you want to calibrate the IMU? (y/N): ")
-        if ans != "y":
-            self.load_calibration_data()
-            return
-
-        if self.sensor.sensor_type == EmgSensorType.BioArmband:
-            ans = input("Is the Armband coming out of deep sleep? (y/N): ")
-            if ans == "y":
-                input(
-                    "Put the armband on a stable surface to calibrate its IMU. Press Enter when ready."
-                )
-                calib_samples = 250
-                fetched_samples = 0
-                with tqdm(total=calib_samples) as pbar:
-                    while fetched_samples < calib_samples:
-                        quats = self.get_imu_data("quat")
-                        if quats is None:
-                            time.sleep(0.1)
-                            continue
-                        fetched_samples += len(quats)
-                        pbar.update(len(quats))
-        # Accumulate data
-        for i, v in enumerate(self.arm_movement_list):
-            input(
-                f"({i+1}/{len(self.arm_movement_list)}) Move the arm to the {v.upper()} position and press Enter."
-            )
-            self.odh.raw_data.reset_imu()
-            fetched_samples = 0
-            with tqdm(total=n_samples) as pbar:
-                while fetched_samples < n_samples:
-                    quats = self.get_imu_data("quat")
-                    if quats is None:
-                        time.sleep(0.1)
-                        continue
-                    fetched_samples += len(quats)
-                    pbar.update(len(quats))
-                    quats = np.sum(quats, axis=0)
-                    self.arm_calib_data[i] += quats
-            self.arm_calib_data[i] = self.arm_calib_data[i] / fetched_samples
-        q_neutral = Quaternion(self.arm_calib_data[0])
-
-        # Calculate deadzones
-        for i in range(1, len(self.arm_movement_list)):
-            q_pos = Quaternion(self.arm_calib_data[i])
-            self.arm_calib_deadzones[i] = (
-                Quaternion.absolute_distance(q_neutral, q_pos) / 2
-            )
-
-    def save_calibration_data(self):
-        np.savez(
-            self.paths.imu_calib,
-            arm_calib_data=self.arm_calib_data,
-            arm_calib_deadzones=np.array(self.arm_calib_deadzones),
-        )
-
-    def load_calibration_data(self):
-        data = np.load(self.paths.imu_calib)
-        self.arm_calib_data = data["arm_calib_data"]
-        self.arm_calib_deadzones = list(data["arm_calib_deadzones"])
-
     def visualize_emg(self):
         self.odh.visualize()
 
 
 def __main():
     import configs as g
+    import torch
 
     SENSOR = EmgSensorType.BioArmband
-    GESTURE_IDS = [1, 2, 3, 4, 5, 17, 18, 26]
-    USE_IMU = False
+    GESTURE_IDS = g.FUNCTIONAL_SET
 
     sensor = EmgSensor(SENSOR)
-    paths = NfcPaths(f"data/{sensor.get_name()}_wrist")
-    mw = EmgSCNNWrapper.load_from_disk(paths.model, sensor.emg_shape, g.ACCELERATOR)
+    paths = NfcPaths(f"data/{sensor.get_name()}")
+
+    paths.set_trial_number(paths.trial_number - 1)
+    paths.set_model_name("model_mlp")
+
+    fe = FeatureExtractor()
+    fg = fe.get_feature_groups()["HTD"]
+
+    model = EmgMLP(len(fg) * np.prod(sensor.emg_shape), len(GESTURE_IDS))
+    model.load_state_dict(torch.load(paths.model))
+    model.eval()
 
     # models.main_finetune_scnn(
     #     mw, sensor, paths.fine, False, GESTURE_IDS, paths.gestures
@@ -321,11 +185,11 @@ def __main():
 
     odw = OnlineDataWrapper(
         sensor,
-        mw,
+        model,
+        fg,
         paths,
         GESTURE_IDS,
-        USE_IMU,
-        g.PEUDO_LABELS_PORT,
+        g.PSEUDO_LABELS_PORT,
         g.PREDS_IP,
         g.PREDS_PORT,
     )

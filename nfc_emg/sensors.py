@@ -49,7 +49,7 @@ class EmgSensor:
             process handle
         """
         if self.p is not None:
-            pass
+            return self.p
         elif self.sensor_type == EmgSensorType.MyoArmband:
             self.p = myo_streamer(filtered=False, imu=True)
         elif self.sensor_type == EmgSensorType.BioArmband:

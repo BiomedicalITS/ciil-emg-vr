@@ -2,7 +2,7 @@ import sys
 import socket
 import datetime
 
-from configs import PEUDO_LABELS_PORT
+from configs import PSEUDO_LABELS_PORT
 
 if __name__ == "__main__":
     label = 3
@@ -12,4 +12,4 @@ if __name__ == "__main__":
         print(
             f"({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}) Sent label {label}"
         )
-        s.sendto(bytes([label]), ("127.0.0.1", PEUDO_LABELS_PORT))
+        s.sendto(bytes([label]), ("127.0.0.1", PSEUDO_LABELS_PORT))

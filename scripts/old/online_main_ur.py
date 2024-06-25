@@ -493,7 +493,7 @@ if __name__ == "__main__":
         g.EMG_MAJ_VOTE_MS,
         len(g.LIBEMG_GESTURE_IDS),
         g.ACCELERATOR,
-        g.PEUDO_LABELS_PORT,
+        g.PSEUDO_LABELS_PORT,
         g.PREDS_IP,
         g.PREDS_PORT,
         # False,

@@ -69,7 +69,7 @@ class OnlineDataWrapper:
         self.preds_sock = (preds_ip, preds_port)
 
         # Models
-        self.model = models.get_model(model_path, emg_shape, gestures_num, True)
+        self.model = models.get_model_cnn(model_path, emg_shape, gestures_num, True)
         self.model.to(self.accelerator)
         self.optimizer = self.model.configure_optimizers()
 
@@ -352,7 +352,7 @@ if __name__ == "__main__":
         gestures_dir=g.TRAIN_DATA_DIR,
         accelerator=g.ACCELERATOR,
         use_imu=True,
-        pseudo_labels_port=g.PEUDO_LABELS_PORT,
+        pseudo_labels_port=g.PSEUDO_LABELS_PORT,
         preds_ip=g.PREDS_IP,
         preds_port=g.PREDS_PORT,
     )

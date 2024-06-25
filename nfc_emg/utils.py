@@ -199,13 +199,11 @@ def get_online_data_handler(
 
     Args:
         sampling_rate (float): EMG sampling rate
-        bandpass_freqs (float | list, optional). Defaults to [20, 350].
-        notch_freq (int, optional). Defaults to 50.
-        imu (bool, optional): Use IMU?. Defaults to True.
+        bandpass_freqs (float | list, optional). Defaults to [20, 350]
         kwargs: passed to OnlineDataHandler creator
 
     Returns:
-        OnlineDataHandler: _description_
+        OnlineDataHandler, with listening activated 
     """
     odh = OnlineDataHandler(imu_arr=imu, **kwargs)
     if attach_filters:
