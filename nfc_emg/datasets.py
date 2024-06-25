@@ -10,6 +10,19 @@ from emager_py import data_processing as dp
 from nfc_emg.sensors import EmgSensor, EmgSensorType
 
 
+def process_data(data: np.ndarray):
+    """
+    Process data for training.
+
+    Params:
+        - data: (N, C, W)
+
+    Returns:
+        - (N, C) processed data
+    """
+    return np.mean(np.abs(data), axis=-1, dtype=np.float32)
+
+
 def get_offline_datahandler(
     data_dir: str,
     classes: list,
@@ -68,7 +81,7 @@ def get_triplet_dataloader(
     Get a triplet dataloader.
 
     Params:
-        - data: (N, H, W)
+        - data: (N, C, H, W)
         - labels: (N,)
         - batch_size: batch size
         - shuffle: shuffle data
@@ -80,9 +93,9 @@ def get_triplet_dataloader(
     )
     dataloader = DataLoader(
         TensorDataset(
-            torch.from_numpy(anchor[:, np.newaxis, ...]),
-            torch.from_numpy(positive[:, np.newaxis, ...]),
-            torch.from_numpy(negative[:, np.newaxis, ...]),
+            torch.from_numpy(anchor),
+            torch.from_numpy(positive),
+            torch.from_numpy(negative),
         ),
         batch_size=batch_size,
         shuffle=shuffle,
@@ -100,7 +113,7 @@ def get_dataloader(
     Get a dataloader for training.
 
     Params:
-        - data: (N, H, W)
+        - data: (N, C, H, W)
         - labels: (N,)
         - batch_size: batch size
         - shuffle: shuffle data
@@ -112,7 +125,7 @@ def get_dataloader(
     labels = labels[:cutoff]
     dataloader = DataLoader(
         TensorDataset(
-            torch.from_numpy(data[:, np.newaxis, ...]),
+            torch.from_numpy(data),
             torch.from_numpy(labels),
         ),
         batch_size=batch_size,

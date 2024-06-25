@@ -1,13 +1,14 @@
 import matplotlib.pyplot as plt
 from sklearn.metrics import ConfusionMatrixDisplay
 import numpy as np
+import torch
 
 from libemg.feature_extractor import FeatureExtractor
 
 from nfc_emg import utils
 from nfc_emg.sensors import EmgSensor, EmgSensorType
 from nfc_emg.paths import NfcPaths
-from nfc_emg.models import EmgCNN, main_train_nn, main_test_nn, get_model
+from nfc_emg.models import EmgMLP, main_train_nn, main_test_nn, get_model
 
 import configs as g
 
@@ -24,12 +25,14 @@ def __main():
 
     sensor = EmgSensor(SENSOR)
     paths = NfcPaths("data/" + sensor.get_name(), 1)
-    paths.set_model_name("model_cnn")
+    paths.set_model_name("model_mlp")
 
     fe = FeatureExtractor()
     fg = fe.get_feature_groups()["HTD"]
 
-    model = EmgCNN(len(fg), sensor.emg_shape, len(GESTURE_IDS))
+    model = EmgMLP(len(fg) * np.prod(sensor.emg_shape), len(GESTURE_IDS))
+    # model.load_state_dict(torch.load(paths.model))
+
     # model = get_model(paths.model, sensor.emg_shape, len(GESTURE_IDS), FINETUNE)
     model = main_train_nn(
         model=model,

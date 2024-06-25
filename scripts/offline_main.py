@@ -29,17 +29,17 @@ def __main():
     # SAMPLE_FINE_DATA = True
     # SAMPLE_TEST_DATA = True
 
-    sensor = EmgSensor(SENSOR)
-    paths = NfcPaths(f"data/{sensor.get_name()}")
+    sensor = EmgSensor(SENSOR, window_inc_ms=10)
+    paths = NfcPaths(f"data/{sensor.get_name()}", 2)
 
-    # sensor.window_increment = 1
+    sensor.set_window_increment(5)
 
-    if paths.trial_number == paths.trial_number:
+    if paths.trial_number == paths.get_next_trial():
         paths.set_trial_number(
             paths.trial_number if SAMPLE_DATA else paths.trial_number - 1
         )
 
-    # mw = EmgSCNNWrapper.load_from_disk(paths.model, sensor.emg_shape, "cpu")
+    # mw = EmgSCNNWrapper.load_from_disk(paths.model, sensor.emg_shape, 1, "cpu")
     mw = main_train_scnn(
         sensor=sensor,
         data_dir=paths.train,
@@ -49,10 +49,10 @@ def __main():
         # classifier=CosineSimilarity(),
         classifier=LinearDiscriminantAnalysis(),
     )
+    mw.save_to_disk(paths.model)
 
-    # mw.attach_classifier(LinearDiscriminantAnalysis())
+    mw.attach_classifier(LinearDiscriminantAnalysis())
     # mw.attach_classifier(CosineSimilarity())
-    # mw.save_to_disk(paths.model)
 
     main_finetune_scnn(
         mw=mw,
@@ -63,12 +63,10 @@ def __main():
         gestures_dir=paths.gestures,
     )
 
-    # mw.save_to_disk(paths.model)
-
     test_results = main_test_scnn(
         mw=mw,
         sensor=sensor,
-        data_dir=paths.fine,
+        data_dir=paths.test,
         sample_data=SAMPLE_TEST_DATA,
         gestures_list=GESTURE_IDS,
         gestures_dir=paths.gestures,
@@ -80,7 +78,7 @@ def __main():
         test_results["CONF_MAT"], axis=1, keepdims=True
     )
     test_gesture_names = utils.get_name_from_gid(
-        paths.gestures, paths.test, GESTURE_IDS
+        paths.gestures, paths.train, GESTURE_IDS
     )
 
     ConfusionMatrixDisplay(conf_mat, display_labels=test_gesture_names).plot()
