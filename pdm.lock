@@ -4,8 +4,8 @@
 [metadata]
 groups = ["default"]
 strategy = ["cross_platform", "inherit_metadata"]
-lock_version = "4.4.1"
-content_hash = "sha256:6445f2d307df5069d2d1aa826a0d23cce39ab18a50fd75c58cbca1a1ad7e221b"
+lock_version = "4.4.2"
+content_hash = "sha256:3c8f6863332cb8323e11eeb7e7c09323eb7f18ac3ef15979472ef3fd18b51667"
 
 [[package]]
 name = "aiohttp"
@@ -740,7 +740,7 @@ name = "libemg"
 version = "0.0.3"
 git = "https://github.com/gabrielpgagne/libemg"
 ref = "main"
-revision = "32cc31df0db39b91467403c22237c4b8dccf3737"
+revision = "d80a9c05620594ce6920fcec6d1183a4978000c1"
 summary = "LibEMG - Myoelectric Control Library"
 groups = ["default"]
 dependencies = [
@@ -785,14 +785,14 @@ files = [
 
 [[package]]
 name = "lightning"
-version = "2.3.0"
+version = "2.3.1"
 requires_python = ">=3.8"
 summary = "The Deep Learning framework to train, deploy, and ship AI products Lightning fast."
 groups = ["default"]
 dependencies = [
     "PyYAML<8.0,>=5.4",
     "fsspec[http]<2026.0,>=2022.5.0",
-    "lightning-utilities<2.0,>=0.8.0",
+    "lightning-utilities<2.0,>=0.10.0",
     "numpy<3.0,>=1.17.2",
     "packaging<25.0,>=20.0",
     "pytorch-lightning",
@@ -802,8 +802,8 @@ dependencies = [
     "typing-extensions<6.0,>=4.4.0",
 ]
 files = [
-    {file = "lightning-2.3.0-py3-none-any.whl", hash = "sha256:ed66c2053be1295c8452b996b719badf5a26a0652607c121103dfdd5d2dccfae"},
-    {file = "lightning-2.3.0.tar.gz", hash = "sha256:4bb4d6e3650d2d5f544ad60853a22efc4e164aa71b9596d13f0454b29df05130"},
+    {file = "lightning-2.3.1-py3-none-any.whl", hash = "sha256:9325b79b52db79e86bd337ef6cd5763e37cfb93e26677199e529694e65b38d57"},
+    {file = "lightning-2.3.1.tar.gz", hash = "sha256:29cf87270a1779984d3614f7f748af57e3695396a25e814119840894505c334c"},
 ]
 
 [[package]]

@@ -54,7 +54,7 @@ class EmgSensor:
             self.p = myo_streamer(filtered=False, imu=True)
         elif self.sensor_type == EmgSensorType.BioArmband:
             self.p = sifibridge_streamer(
-                version="1_1",
+                device="BioArmband",
                 emg=True,
                 imu=True,
                 notch_on=True,
