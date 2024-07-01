@@ -4,8 +4,8 @@
 [metadata]
 groups = ["default"]
 strategy = ["cross_platform", "inherit_metadata"]
-lock_version = "4.4.2"
-content_hash = "sha256:3c8f6863332cb8323e11eeb7e7c09323eb7f18ac3ef15979472ef3fd18b51667"
+lock_version = "4.4.1"
+content_hash = "sha256:97de5314f16c6a62630db4a458b1f2b7170eff2a10ce797922201d434d6476f4"
 
 [[package]]
 name = "aiohttp"
@@ -615,7 +615,7 @@ files = [
 [[package]]
 name = "intel-openmp"
 version = "2021.4.0"
-summary = "Intel® OpenMP* Runtime Library"
+summary = "Intel OpenMP* Runtime Library"
 groups = ["default"]
 marker = "platform_system == \"Windows\""
 files = [
@@ -1935,7 +1935,7 @@ files = [
 [[package]]
 name = "tbb"
 version = "2021.13.0"
-summary = "Intel® oneAPI Threading Building Blocks (oneTBB)"
+summary = "Intel® oneAPI Threading Building Blocks"
 groups = ["default"]
 marker = "platform_system == \"Windows\""
 files = [

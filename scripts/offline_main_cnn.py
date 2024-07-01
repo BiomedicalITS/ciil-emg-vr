@@ -26,8 +26,8 @@ def __main():
     paths = NfcPaths("data/" + sensor.get_name(), 1)
     paths.set_model_name("model_cnn")
 
-    fe = FeatureExtractor()
-    fg = fe.get_feature_groups()["HTD"]
+    fg = g.FEATURES
+
 
     model = EmgCNN(len(fg), sensor.emg_shape, len(GESTURE_IDS))
     # model = get_model(paths.model, sensor.emg_shape, len(GESTURE_IDS), FINETUNE)

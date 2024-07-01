@@ -62,8 +62,7 @@ class ObjectShape(IntEnum):
             return (name_to_cid["Chuck_Grip"], name_to_cid["Hand_Open"])
         else:
             return tuple()
-
-
+    
 def from_dict(d: dict):
     """Convert a dictionary to an enum object from this module
 

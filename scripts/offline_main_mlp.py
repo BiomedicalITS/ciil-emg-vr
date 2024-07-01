@@ -4,7 +4,6 @@ import numpy as np
 import torch
 
 from libemg.emg_classifier import EMGClassifier, OnlineEMGClassifier
-from libemg.feature_extractor import FeatureExtractor
 
 from nfc_emg import utils
 from nfc_emg.sensors import EmgSensor, EmgSensorType
@@ -21,7 +20,7 @@ def __main():
 
     SAMPLE_DATA = False
     SAMPLE_TEST_DATA = False
-    FINETUNE = False
+    FINETUNE = True
 
     GESTURE_IDS = g.FUNCTIONAL_SET
 
@@ -29,11 +28,15 @@ def __main():
     paths = NfcPaths("data/" + sensor.get_name(), 0)
     paths.set_model_name("model_mlp")
 
-    fe = FeatureExtractor()
-    fg = fe.get_feature_groups()["HTD"]
+    
+    fg = g.FEATURES
 
-    model = models.load_mlp(paths.model)
-    # model = EmgMLP(len(fg) * np.prod(sensor.emg_shape), len(GESTURE_IDS))
+    if FINETUNE or not SAMPLE_DATA:
+        print(utils.get_name_from_gid(paths.gestures, paths.train, GESTURE_IDS))
+        model = models.load_mlp(paths.model)
+    else:
+        model = EmgMLP(len(fg) * np.prod(sensor.emg_shape), len(GESTURE_IDS))
+
     # model = main_train_nn(
     #     model=model,
     #     sensor=sensor,
@@ -41,19 +44,21 @@ def __main():
     #     features=fg,
     #     gestures_list=GESTURE_IDS,
     #     gestures_dir=paths.gestures,
-    #     data_dir=paths.train,
+    #     data_dir=paths.fine if FINETUNE else paths.train,
     #     model_out_path=paths.model,
+    #     num_reps=1 if FINETUNE else 5,
+    #     rep_time=3
     # )
 
-    classi = EMGClassifier()
-    classi.add_majority_vote(sensor.maj_vote_n)
-    classi.classifier = model.eval()
+    # classi = EMGClassifier()
+    # classi.add_majority_vote(sensor.maj_vote_n)
+    # classi.classifier = model.eval()
 
-    sensor.start_streamer()
-    odh = utils.get_online_data_handler(sensor.fs, sensor.bandpass_freqs, imu=False, attach_filters=False if sensor.sensor_type == EmgSensorType.BioArmband else True)
+    # sensor.start_streamer()
+    # odh = utils.get_online_data_handler(sensor.fs, sensor.bandpass_freqs, imu=False, attach_filters=False if sensor.sensor_type == EmgSensorType.BioArmband else True)
     
-    oclassi = OnlineEMGClassifier(classi, sensor.window_size, sensor.window_increment, odh, fg, port=g.PREDS_PORT, std_out=True)
-    oclassi.run()
+    # oclassi = OnlineEMGClassifier(classi, sensor.window_size, sensor.window_increment, odh, fg, port=g.PREDS_PORT, std_out=True)
+    # oclassi.run()
 
     test_results = main_test_nn(
         model=model,

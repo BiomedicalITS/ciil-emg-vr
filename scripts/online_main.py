@@ -171,10 +171,14 @@ def __main():
     paths.set_trial_number(paths.trial_number - 1)
     paths.set_model_name("model_mlp")
 
-    fe = FeatureExtractor()
-    fg = fe.get_feature_groups()["HTD"]
+    paths = NfcPaths(f"data/vr_{sensor.get_name()}")
+    if not SAMPLE_DATA or DEBUG:
+        paths.set_trial_number(paths.trial_number - 1)
+    paths.set_model_name("model_mlp")
+    paths.gestures = "data/gestures/"
+    
 
-    model = EmgMLP(len(fg) * np.prod(sensor.emg_shape), len(GESTURE_IDS))
+    model = EmgMLP(len(g.FEATURES) * np.prod(sensor.emg_shape), len(GESTURE_IDS))
     model.load_state_dict(torch.load(paths.model))
     model.eval()
 
@@ -186,7 +190,7 @@ def __main():
     odw = OnlineDataWrapper(
         sensor,
         model,
-        fg,
+        g.FEATURES,
         paths,
         GESTURE_IDS,
         g.PSEUDO_LABELS_PORT,

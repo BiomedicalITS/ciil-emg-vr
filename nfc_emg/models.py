@@ -522,6 +522,7 @@ def train_nn(
     classes: list,
     train_reps: list,
     test_reps: list,
+    finetune: bool = False,
 ):
     """Train a NN model
 
@@ -551,7 +552,10 @@ def train_nn(
 
     data, labels = datasets.prepare_data(train_odh, sensor)
     data = fe.extract_features(features, data, array=True).astype(np.float32)
-    data = model.scaler.fit_transform(data)
+    if finetune:
+        data = model.scaler.transform(data)
+    else:
+        data = model.scaler.fit_transform(data)
     train_loader = datasets.get_dataloader(data, labels, 64, True)
 
     model.train()
@@ -617,9 +621,11 @@ def main_train_nn(
     gestures_dir: str,
     data_dir: str,
     model_out_path: str,
+    num_reps: int,
+    rep_time: int
 ):
     if sample_data:
-        utils.do_sgt(sensor, gestures_list, gestures_dir, data_dir, 5, 5)
+        utils.do_sgt(sensor, gestures_list, gestures_dir, data_dir, num_reps, rep_time)
 
     classes = utils.get_cid_from_gid(gestures_dir, data_dir, gestures_list)
     reps = utils.get_reps(data_dir)
@@ -630,7 +636,7 @@ def main_train_nn(
         train_reps = reps[: int(0.8 * len(reps))]
         test_reps = reps[int(0.8 * len(reps)) :]
 
-    model = train_nn(model, sensor, features, data_dir, classes, train_reps, test_reps)
+    model = train_nn(model, sensor, features, data_dir, classes, train_reps, test_reps, True if num_reps<3 else False)
     save_nn(model, model_out_path)
     return model
 

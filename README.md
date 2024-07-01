@@ -44,6 +44,7 @@ In VR, virtual objects can be freely placed in a simulated environment, eliminat
 
 ## Resources
 
+- [VR project](https://github.com/ThomasLabbe01/VrGameRFID)
 - [LibEMG doc](https://libemg.github.io/libemg/#)
 - [LibEMG gesture library](https://github.com/libemg/LibEMGGestures)
 
