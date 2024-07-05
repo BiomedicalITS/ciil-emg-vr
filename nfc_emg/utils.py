@@ -306,6 +306,7 @@ def screen_guided_training(
         rep_time,
         gestures_img_dir,
         output_folder=out_data_dir,
+        wait_btwn_prompts=True,
         **kwargs,
     )
 

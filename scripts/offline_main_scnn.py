@@ -21,25 +21,26 @@ import configs as g
 
 
 def __main():
-    SENSOR = EmgSensorType.BioArmband
+    SENSOR = EmgSensorType.MyoArmband
     GESTURE_IDS = g.FUNCTIONAL_SET
 
     SAMPLE_DATA = False
     SAMPLE_FINE_DATA = False
     SAMPLE_TEST_DATA = False
 
-    SAMPLE_DATA = True
-    SAMPLE_FINE_DATA = True
-    SAMPLE_TEST_DATA = True
+    # SAMPLE_DATA = True
+    # SAMPLE_FINE_DATA = True
+    # SAMPLE_TEST_DATA = True
 
     # Setup
 
-    sensor = EmgSensor(SENSOR, window_inc_ms=5)
+    sensor = EmgSensor(SENSOR, window_size_ms=10, window_inc_ms=5, majority_vote_ms=200)
     paths = NfcPaths(f"data/{sensor.get_name()}")
     if paths.trial_number == paths.get_next_trial():
         paths.set_trial_number(
             paths.trial_number if SAMPLE_DATA else paths.trial_number - 1
         )
+    paths.set_trial_number(-1)
     paths.gestures = "data/gestures/"
     paths.set_model_name("model_scnn")
 
@@ -61,15 +62,14 @@ def __main():
     # mw.attach_classifier(CosineSimilarity())
 
     # Finetune 
-
-    main_finetune_scnn(
-        mw=mw,
-        sensor=sensor,
-        data_dir=paths.fine,
-        sample_data=SAMPLE_FINE_DATA,
-        gestures_list=GESTURE_IDS,
-        gestures_dir=paths.gestures,
-    )
+    # main_finetune_scnn(
+    #     mw=mw,
+    #     sensor=sensor,
+    #     data_dir=paths.fine,
+    #     sample_data=SAMPLE_FINE_DATA,
+    #     gestures_list=GESTURE_IDS,
+    #     gestures_dir=paths.gestures,
+    # )
 
     # Test
 
@@ -93,14 +93,14 @@ def __main():
 
     # Online classification with LibEMG
     
-    mw.model.eval()
-    sensor.start_streamer()
-    odh = utils.get_online_data_handler(sensor.fs, sensor.bandpass_freqs, sensor.notch_freq, False, False if SENSOR == EmgSensorType.BioArmband else True)
-    classi = EMGClassifier()
-    classi.add_majority_vote(sensor.maj_vote_n)
-    classi.classifier = mw
-    oclassi = OnlineEMGClassifier(classi, sensor.window_size, sensor.window_increment, odh, ["MAV"], std_out=True)
-    oclassi.run()
+    # mw.model.eval()
+    # sensor.start_streamer()
+    # odh = utils.get_online_data_handler(sensor.fs, sensor.bandpass_freqs, sensor.notch_freq, False, False if SENSOR == EmgSensorType.BioArmband else True)
+    # classi = EMGClassifier()
+    # classi.add_majority_vote(sensor.maj_vote_n)
+    # classi.classifier = mw
+    # oclassi = OnlineEMGClassifier(classi, sensor.window_size, sensor.window_increment, odh, ["MAV"], std_out=True)
+    # oclassi.run()
 
 if __name__ == "__main__":
     __main()

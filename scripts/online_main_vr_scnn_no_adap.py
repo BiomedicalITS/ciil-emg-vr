@@ -1,75 +1,15 @@
 import socket
 import os
-import shutil
-import copy
 import threading
-from datetime import datetime
-import time
-import threading
-from collections import deque 
 
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.utils import shuffle
-
-import numpy as np
-
-from libemg.data_handler import OnlineDataHandler
 from libemg.emg_classifier import EMGClassifier, OnlineEMGClassifier
-from libemg.data_handler import get_windows
-from libemg.feature_extractor import FeatureExtractor
 
-from nfc_emg import utils, models, datasets
+from nfc_emg import utils
 from nfc_emg.sensors import EmgSensor, EmgSensorType
 from nfc_emg.paths import NfcPaths
-from nfc_emg.models import EmgSCNN, EmgSCNNWrapper, main_train_scnn
-from nfc_emg.schemas import POSE_TO_NAME
+from nfc_emg.models import EmgSCNNWrapper
 
 import configs as g
-from sgt_vr import SGT
-
-def wait_for_unity(tcp_port: int):
-    # Wait for Unity game
-    print("Waiting for Unity Game to start...")
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind(("127.0.0.1", tcp_port))
-    server_socket.listen()
-    print(f"Server started on port {tcp_port}")
-    client_socket, client_address = server_socket.accept()
-    print(f"Connection established with {client_address[0]}:{client_address[1]}")
-    return server_socket, client_socket
-
-def do_vr_sgt(odh, client_socket:socket.socket) -> SGT:
-    sgt = None
-    sgt_flag = True
-    client_socket.settimeout(0.05)
-    while sgt_flag:
-        try:
-            dataSGT = client_socket.recv(8192).decode('utf-8')
-        except TimeoutError:
-            continue
-        if dataSGT == "":
-            raise WindowsError("TCP socket received empty data, assuing it'S dead!")
-        
-        print(f"Received data from Unity: {dataSGT}")
-        if dataSGT:
-            sgt_flag, sgt = process_unity_command(odh, dataSGT, sgt)
-    return sgt     
-
-def process_unity_command(odh: OnlineDataHandler, data: bytes, sgt: SGT):
-    sgt_flag = True
-    if (data[0] == 'I'): # Initialization
-        #SGT(data_handler, num_reps, time_per_reps, time_bet_rep, inputs_names, output_folder)
-        parts = data.split(' ')
-        num_reps = int(parts[1])
-        time_per_rep = int(parts[2])
-        time_bet_rep = int(parts[3])
-        input_names = parts[4]
-        output_folder = parts[5]
-        sgt = SGT(odh, num_reps, time_per_rep, time_bet_rep, input_names, output_folder)
-        return sgt_flag, sgt
-    else:
-        sgt_flag = sgt._collect_data(data[0])
-        return sgt_flag, sgt
 
 def main_nfcemg_vr():
     SUBJECT = "vr"

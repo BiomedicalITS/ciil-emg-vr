@@ -74,7 +74,10 @@ class EmgSensor:
             self.p = None
 
     def set_window_size(self, ms: int):
-        self.window_size = (ms * self.fs) // 1000
+        if ms == 0:
+            self.window_size = 1
+        else:
+            self.window_size = (ms * self.fs) // 1000
 
     def set_window_increment(self, ms: int):
         """
@@ -86,4 +89,7 @@ class EmgSensor:
             self.window_increment = (ms * self.fs) // 1000
 
     def set_majority_vote(self, ms: int):
-        self.maj_vote_n = (ms * self.fs) // (1000 * self.window_increment)
+        if ms == 0:
+            self.maj_vote_n = 1
+        else:
+            self.maj_vote_n = (ms * self.fs) // (1000 * self.window_increment)

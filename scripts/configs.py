@@ -21,7 +21,7 @@ FUNCTIONAL_SET = [1, 2, 3, 4, 5, 8, 26, 30]  # w/o wrist up/down
 FINE_SET = [1, 2, 3, 8, 14, 26, 30]
 
 _fe = FeatureExtractor()
-FEATURES = _fe.get_feature_groups()["HTD"]
+FEATURES = _fe.get_feature_groups()["TDPSD"]
 
 WAIT_TCP_PORT = 12346
 PSEUDO_LABELS_PORT = 12350

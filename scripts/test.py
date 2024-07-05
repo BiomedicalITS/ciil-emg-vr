@@ -188,9 +188,26 @@ def test_online_rw():
             print(f"fs {len(ft_data)/(time.time()-t0):.2f}")
             print(f"Total iter time: {time.time()-timestamp:.3f} s")
 
+def test_dict_iter():
+    fe = FeatureExtractor().get_feature_groups()["LS4"]
+
+    dico = dict()
+
+    for f in fe:
+        dico[f] = np.zeros((10, 8))
+
+    dico["a"] = "e"
+
+    for feat in dico:
+        print(feat)
+
+    # Seems like dicts (CPython) iterate in order of key insertion.
+
 if __name__ == "__main__":
+    test_dict_iter()
+    test_dict_iter()
     # test_read_emg_csv()
-    test_online_rw()
+    # test_online_rw()
     # test_write()
     # test_oclassi()
 
