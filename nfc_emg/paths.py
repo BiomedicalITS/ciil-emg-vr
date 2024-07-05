@@ -4,7 +4,8 @@ import os
 
 @dataclass
 class NfcPaths:
-    base: str = "data/"
+    base: str
+    trial_number: int
     gestures: str = "gestures/"
     model: str = "model.pth"
     train: str = "train/"
@@ -12,6 +13,7 @@ class NfcPaths:
     test: str = "test/"
     results: str = "results/"
     imu_calib: str = "imu_calib_data.npz"
+    live_data: str = "live_"
 
     def __init__(self, base="data/", trial_number: int | None = None):
         self.base = base
@@ -39,6 +41,7 @@ class NfcPaths:
         self.train = f"{self.base}/{self.trial_number}/train/"
         self.fine = f"{self.base}/{self.trial_number}/fine/"
         self.test = f"{self.base}/{self.trial_number}/test/"
+        self.live_data = f"{self.base}/{self.trial_number}/live_"
         self.results = f"{self.base}/{self.trial_number}/results.json"
         self.imu_calib = f"{self.base}/{self.trial_number}/imu_calib_data.npz"
         self.model = self.set_model_name(self.model.split("/")[-1])

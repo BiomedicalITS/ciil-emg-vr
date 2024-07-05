@@ -4,6 +4,7 @@ import shutil
 import copy
 import threading
 from datetime import datetime
+import time
 
 import numpy as np
 import torch
@@ -73,7 +74,7 @@ def main_nfcemg_vr():
     SAMPLE_DATA = True # Train model from freshly sampled data
     DEBUG = False # used to skip SGT and TCP
 
-    # SAMPLE_DATA = False 
+    SAMPLE_DATA = False 
     # DEBUG = True
 
     sensor = EmgSensor(SENSOR)
@@ -82,7 +83,6 @@ def main_nfcemg_vr():
     paths = NfcPaths(f"data/vr_{sensor.get_name()}")
     if not SAMPLE_DATA or DEBUG:
         paths.set_trial_number(paths.trial_number - 1)
-    paths.set_model_name("model_mlp")
     paths.gestures = "data/gestures/"
 
     try:
@@ -90,7 +90,13 @@ def main_nfcemg_vr():
     except Exception:
         pass
 
-    odh = utils.get_online_data_handler(sensor.fs, sensor.bandpass_freqs, sensor.notch_freq, False, False if SENSOR == EmgSensorType.BioArmband else True)
+    odh = utils.get_online_data_handler(
+        sensor.fs, 
+        sensor.bandpass_freqs, 
+        sensor.notch_freq, 
+        False, 
+        False if SENSOR == EmgSensorType.BioArmband else True,
+    )
 
     fe = FeatureExtractor()
     fg = g.FEATURES
@@ -100,12 +106,15 @@ def main_nfcemg_vr():
     ft_data = np.zeros((0, np.prod(sensor.emg_shape)), dtype=np.float32)
 
     server_socket, client_socket, udp_sock = socket.socket(), socket.socket(), socket.socket()
+    context = []
     try:
+        # wait for Unity to be ready
         if DEBUG:
             t = threading.Thread(target=lambda: wait_for_unity(g.WAIT_TCP_PORT))
             t.start()
         else:
             server_socket, client_socket = wait_for_unity(g.WAIT_TCP_PORT)
+        
 
         # Do SGT and copy data from remote project
         if SAMPLE_DATA:
@@ -129,6 +138,18 @@ def main_nfcemg_vr():
         else:
             model = models.load_mlp(paths.model)
 
+        odh.stop_listening() # create ODH with data recording
+        odh = utils.get_online_data_handler(
+            sensor.fs, 
+            sensor.bandpass_freqs, 
+            sensor.notch_freq, 
+            False, 
+            False if SENSOR == EmgSensorType.BioArmband else True,
+            timestamps=True, 
+            file=True,
+            file_path=paths.live_data,
+        )
+        
         classi = EMGClassifier()
         classi.add_majority_vote(sensor.maj_vote_n)
         classi.classifier = model.eval()
@@ -139,9 +160,11 @@ def main_nfcemg_vr():
         udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         udp_sock.bind(("127.0.0.1", g.PSEUDO_LABELS_PORT))
 
+        # Start recording to file
         w_model = copy.deepcopy(model) # main thread copy of model
         while True:
-            udp_ctx = udp_sock.recv(2048).decode().split(" ")
+            udp_ctx = udp_sock.recv(2048).decode()
+            context.append(f"{time.time()} {udp_ctx}") # libemg timestamps with time.time()
             # print(f"Received context from Unity: {udp_ctx}")
             if udp_ctx[0] == "N":
                 # P means within context
@@ -180,6 +203,9 @@ def main_nfcemg_vr():
 
                 ft_data = np.zeros((0, np.prod(sensor.emg_shape)), dtype=np.float32)
     finally:
+        if len(context) > 0:
+            with open(paths.live_data + "context.txt", "w") as f:
+                f.write('\n'.join(context))
         server_socket.close()
         client_socket.close()
         udp_sock.close()

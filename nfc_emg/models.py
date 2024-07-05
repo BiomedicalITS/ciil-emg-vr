@@ -22,10 +22,9 @@ from nfc_emg.sensors import EmgSensor
 
 
 class EmgCNN(L.LightningModule):
-    def __init__(self, num_channels, input_shape, num_classes):
+    def __init__(self, input_shape, num_classes):
         """
         Parameters:
-            - num_channels: number of channels (eg features)
             - input_shape: shape of input data
             - num_classes: number of classes
         """
@@ -33,7 +32,6 @@ class EmgCNN(L.LightningModule):
         self.save_hyperparameters()
         self.fine_tuning = False
 
-        self.num_channels = num_channels
         self.input_shape = input_shape
 
         self.scaler = StandardScaler()
@@ -41,7 +39,7 @@ class EmgCNN(L.LightningModule):
         hl_sizes = [64, 64, 64, 128, 64]
 
         self.feature_extractor = nn.Sequential(
-            nn.Conv2d(self.num_channels, hl_sizes[0], 5, padding=2),
+            nn.Conv2d(1, hl_sizes[0], 5, padding=2),
             nn.LeakyReLU(),
             nn.BatchNorm2d(hl_sizes[0]),
             nn.Conv2d(hl_sizes[0], hl_sizes[1], 3, padding=1),
@@ -65,7 +63,7 @@ class EmgCNN(L.LightningModule):
         self.classifier = nn.Linear(hl_sizes[4], num_classes)
 
     def forward(self, x):
-        x = torch.reshape(x, (-1, self.num_channels, *self.input_shape))
+        x = torch.reshape(x, (-1, 1, *self.input_shape))
         out = self.feature_extractor(x)
         out = self.fine_feature_extractor(out)
         logits = self.classifier(out)
@@ -125,9 +123,9 @@ class EmgCNN(L.LightningModule):
         if not isinstance(x, torch.Tensor):
             x = torch.from_numpy(x).to(self.device)
         if len(x.shape) == 3:
-            x = x.reshape(-1, self.num_channels, *x.shape[1:])
+            x = x.reshape(-1, 1, *x.shape[1:])
         elif len(x.shape) == 2:
-            x = x.reshape(-1, self.num_channels, 1, x.shape[1])
+            x = x.reshape(-1, 1, 1, x.shape[1])
         return x
 
     def predict(self, x):
@@ -275,7 +273,7 @@ class EmgMLP(L.LightningModule):
 
 
 class EmgSCNN(L.LightningModule):
-    def __init__(self, input_shape: tuple, num_channels: int):
+    def __init__(self, input_shape: tuple):
         """
         Parameters:
             - input_shape: EMG input shape (H, W)
@@ -286,7 +284,7 @@ class EmgSCNN(L.LightningModule):
         hl_sizes = [32, 32, 32, 128, 64]
 
         self.feature_extractor = nn.Sequential(
-            nn.Conv2d(num_channels, hl_sizes[0], 5, padding=2),
+            nn.Conv2d(1, hl_sizes[0], 5, padding=2),
             nn.LeakyReLU(),
             nn.BatchNorm2d(hl_sizes[0]),
             nn.Conv2d(hl_sizes[0], hl_sizes[1], 3, padding=1),
@@ -325,7 +323,6 @@ class EmgSCNN(L.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
         return optimizer
-
 
 class CosineSimilarity(BaseEstimator):
     def __init__(self, num_classes: int | None = None, dims: int | None = None):
@@ -409,13 +406,13 @@ class EmgSCNNWrapper:
         return (x - self.mean) / self.std
 
     def predict_embeddings(self, x):
-        x = self.normalize(x)
-        if not isinstance(x, torch.Tensor):
-            x = torch.from_numpy(x).to(self.model.device)
         if len(x.shape) == 3:
             x = x.reshape(-1, 1, *x.shape[1:])
         elif len(x.shape) == 2:
             x = x.reshape(-1, 1, 1, x.shape[1])
+        x = self.normalize(x)
+        if not isinstance(x, torch.Tensor):
+            x = torch.from_numpy(x).to(self.model.device)
         x = x.float()
         with torch.no_grad():
             return self.model(x).cpu().detach().numpy()
@@ -442,19 +439,17 @@ class EmgSCNNWrapper:
 
     @staticmethod
     def load_from_disk(
-        model_path: str, emg_shape: tuple, num_channels: int, accelerator: str = "cpu"
+        model_path: str, emg_shape: tuple, accelerator: str = "cpu"
     ):
         """
         Load an SCNN model from disk in evaluation mode.
         """
         chkpt = torch.load(model_path)
 
-        model = EmgSCNN(emg_shape, num_channels)
+        model = EmgSCNN(emg_shape)
         model.load_state_dict(chkpt["model_state_dict"])
-        model.to(accelerator)
-        model.eval()
 
-        mw = EmgSCNNWrapper(model, chkpt["classifier"])
+        mw = EmgSCNNWrapper(model.to(accelerator).eval(), chkpt["classifier"])
         mw.mean = chkpt["mean"]
         mw.std = chkpt["std"]
 
@@ -697,35 +692,29 @@ def train_scnn(
     fe = FeatureExtractor()
 
     train_windows, train_labels = datasets.prepare_data(train_odh, sensor)
-
     train_data = fe.getMAVfeat(train_windows)
     train_data = np.reshape(train_data, (-1, 1, *sensor.emg_shape)).astype(np.float32)
-    # train_data = fe.extract_feature_group("HTD", train_windows, array=True)
-    # train_data = np.reshape(train_data, (-1, 4, *sensor.emg_shape)).astype(np.float32)
     train_data = mw.set_normalize(train_data)
 
     val_windows, val_labels = datasets.prepare_data(val_odh, sensor)
-
     val_data = fe.getMAVfeat(val_windows)
     val_data = np.reshape(val_data, (-1, 1, *sensor.emg_shape)).astype(np.float32)
-    # val_data = fe.extract_feature_group("HTD", val_windows, array=True)
-    # val_data = np.reshape(val_data, (-1, 4, *sensor.emg_shape)).astype(np.float32)
     val_data = mw.normalize(val_data)
 
     train_loader = datasets.get_triplet_dataloader(
-        train_data, train_labels, 64, True, len(train_data) // (3 * len(classes))
+        train_data, train_labels, 32, True, len(train_data) // (3 * len(classes))
     )
     val_loader = datasets.get_triplet_dataloader(
         val_data, val_labels, 256, False, len(val_data) // (3 * len(classes))
     )
 
     trainer = L.Trainer(
-        max_epochs=10,
+        max_epochs=15,
         callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
-        deterministic=True,
     )
     trainer.fit(mw.model, train_loader, val_loader)
     mw.model.eval()
+    mw.fit(train_data * mw.std + mw.mean, train_labels) # Fit output classifier and bypass double-scaling of data
     return mw
 
 
@@ -737,6 +726,9 @@ def main_train_scnn(
     gestures_dir: str,
     classifier: BaseEstimator,
 ):
+    """
+    Train SCNN. The SCNN's classifier is `fit` on the train data.
+    """
     if sample_data:
         utils.do_sgt(sensor, gestures_list, gestures_dir, data_dir, 5, 3)
 
@@ -749,7 +741,7 @@ def main_train_scnn(
         train_reps = reps[: int(0.8 * len(reps))]
         val_reps = reps[int(0.8 * len(reps)) :]
 
-    model = EmgSCNN(sensor.emg_shape, 1)
+    model = EmgSCNN(sensor.emg_shape)
     mw = EmgSCNNWrapper(model, classifier)
     mw = train_scnn(mw, sensor, data_dir, classes, train_reps, val_reps)
     return mw
@@ -773,12 +765,8 @@ def main_finetune_scnn(
 
     odh = datasets.get_offline_datahandler(data_dir, classes, reps)
     data_windows, labels = datasets.prepare_data(odh, sensor)
-
     data = fe.getMAVfeat(data_windows)
     data = np.reshape(data, (-1, 1, *sensor.emg_shape)).astype(np.float32)
-    # data = fe.extract_feature_group("HTD", data_windows, array=True)
-    # data = np.reshape(data, (-1, 4, *sensor.emg_shape)).astype(np.float32)
-    data = mw.normalize(data)
 
     # Fit classifier
     mw.fit(data, labels)
@@ -807,9 +795,6 @@ def main_test_scnn(
 
     data = fe.getMAVfeat(data_windows)
     data = np.reshape(data, (-1, 1, *sensor.emg_shape)).astype(np.float32)
-    # data = fe.extract_feature_group("HTD", data_windows, array=True)
-    # data = np.reshape(data, (-1, 4, *sensor.emg_shape)).astype(np.float32)
-    data = mw.set_normalize(data)
 
     mw.model.eval()
 

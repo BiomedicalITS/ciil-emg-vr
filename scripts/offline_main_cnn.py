@@ -29,7 +29,7 @@ def __main():
     fg = g.FEATURES
 
 
-    model = EmgCNN(len(fg), sensor.emg_shape, len(GESTURE_IDS))
+    model = EmgCNN(sensor.emg_shape, len(GESTURE_IDS))
     # model = get_model(paths.model, sensor.emg_shape, len(GESTURE_IDS), FINETUNE)
     model = main_train_nn(
         model=model,

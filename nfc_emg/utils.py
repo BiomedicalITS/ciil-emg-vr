@@ -94,12 +94,14 @@ def map_cid_to_name(data_dir: str, cids=None):
 
 
 def map_gid_to_cid(gesture_img_dir: str, data_dir: str, gids=None):
-    """Map LibEMG Gesture ID (GIDs) to ODH Class ID (CIDs)
+    """
+    Map LibEMG Gesture ID (GIDs) to ODH Class ID (CIDs)
 
     Args:
         - gesture_img_dir (str): where the images are stored
         - data_dir (str): where the data is stored
         - gids: only map these GIDs. If None, map all GIDs
+
     Returns a dictionary mapping the gesture ID to the class ID
     """
     gid_to_name = map_gid_to_name(gesture_img_dir, gids)
@@ -120,7 +122,8 @@ def map_gid_to_cid(gesture_img_dir: str, data_dir: str, gids=None):
 
 
 def map_cid_to_ordered_name(gesture_img_dir: str, data_dir: str, gids=None):
-    """Map the ODH Class ID (CID) to the human-readable gesture name from GIDs.
+    """
+    Map ODH Class ID (CID) to the gesture name from GIDs.
 
     Args:
         gesture_img_dir (str): _description_
@@ -128,6 +131,18 @@ def map_cid_to_ordered_name(gesture_img_dir: str, data_dir: str, gids=None):
         gids (_type_, optional): _description_. Defaults to None.
 
     Returns: a dict of int[str]
+
+    >>> map_cid_to_ordered_name(paths.gestures, paths.train, GESTURE_IDS)
+    {
+        0: 'Chuck_Grip', 
+        1: 'Hand_Close', 
+        2: 'Hand_Open', 
+        3: 'Index_Extension', 
+        4: 'Index_Pinch', 
+        5: 'No_Motion', 
+        6: 'Wrist_Extension', 
+        7: 'Wrist_Flexion'
+    }
     """
     return map_cid_to_name(
         data_dir,

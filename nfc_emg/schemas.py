@@ -100,6 +100,17 @@ def to_dict(e: GenericControl):
     else:
         raise ValueError("Invalid enum type")
 
+POSE_TO_NAME = {
+    "Neutral": "No_Motion",
+    "H1": "Index_Pinch",
+    "H2": "Hand_Close",
+    "H3": "Chuck_Grip",
+    "H4": "Index_Pinch",
+    "T1": "Index_Extension",
+    "T2": "Wrist_Flexion",
+    "T3": "Hand_Open",
+    "T4": -1,
+}
 
 if __name__ == "__main__":
     # Test todict and fromdict for every class

@@ -15,50 +15,43 @@ import configs as g
 
 
 def __main():
-
     SENSOR = EmgSensorType.BioArmband
+    GESTURE_IDS = g.FUNCTIONAL_SET
 
     SAMPLE_DATA = False
     SAMPLE_TEST_DATA = False
-    FINETUNE = True
+    FINETUNE = False
 
-    GESTURE_IDS = g.FUNCTIONAL_SET
+    # SAMPLE_DATA = True
+    # SAMPLE_TEST_DATA = True
+    # FINETUNE = True
 
-    sensor = EmgSensor(SENSOR)
-    paths = NfcPaths("data/" + sensor.get_name(), 0)
+    sensor = EmgSensor(SENSOR, window_inc_ms=5)
+    paths = NfcPaths(f"data/{sensor.get_name()}")
+    if paths.trial_number == paths.get_next_trial():
+        paths.set_trial_number(
+            paths.trial_number if SAMPLE_DATA else paths.trial_number - 1
+        )
+    paths.gestures = "data/gestures/"
     paths.set_model_name("model_mlp")
-
     
     fg = g.FEATURES
 
-    if FINETUNE or not SAMPLE_DATA:
-        print(utils.get_name_from_gid(paths.gestures, paths.train, GESTURE_IDS))
-        model = models.load_mlp(paths.model)
-    else:
-        model = EmgMLP(len(fg) * np.prod(sensor.emg_shape), len(GESTURE_IDS))
+    # model = models.load_mlp(paths.model)
+    model = EmgMLP(len(fg) * np.prod(sensor.emg_shape), len(GESTURE_IDS))
 
-    # model = main_train_nn(
-    #     model=model,
-    #     sensor=sensor,
-    #     sample_data=SAMPLE_DATA,
-    #     features=fg,
-    #     gestures_list=GESTURE_IDS,
-    #     gestures_dir=paths.gestures,
-    #     data_dir=paths.fine if FINETUNE else paths.train,
-    #     model_out_path=paths.model,
-    #     num_reps=1 if FINETUNE else 5,
-    #     rep_time=3
-    # )
-
-    # classi = EMGClassifier()
-    # classi.add_majority_vote(sensor.maj_vote_n)
-    # classi.classifier = model.eval()
-
-    # sensor.start_streamer()
-    # odh = utils.get_online_data_handler(sensor.fs, sensor.bandpass_freqs, imu=False, attach_filters=False if sensor.sensor_type == EmgSensorType.BioArmband else True)
-    
-    # oclassi = OnlineEMGClassifier(classi, sensor.window_size, sensor.window_increment, odh, fg, port=g.PREDS_PORT, std_out=True)
-    # oclassi.run()
+    model = main_train_nn(
+        model=model,
+        sensor=sensor,
+        sample_data=SAMPLE_DATA,
+        features=fg,
+        gestures_list=GESTURE_IDS,
+        gestures_dir=paths.gestures,
+        data_dir=paths.fine if FINETUNE else paths.train,
+        model_out_path=paths.model,
+        num_reps=1 if FINETUNE else 5,
+        rep_time=3
+    )
 
     test_results = main_test_nn(
         model=model,
@@ -78,6 +71,13 @@ def __main():
     ConfusionMatrixDisplay(conf_mat, display_labels=test_gesture_names).plot()
     plt.show()
 
+    sensor.start_streamer()
+    odh = utils.get_online_data_handler(sensor.fs, sensor.bandpass_freqs, imu=False, attach_filters=False if sensor.sensor_type == EmgSensorType.BioArmband else True)
+    classi = EMGClassifier()
+    classi.add_majority_vote(sensor.maj_vote_n)
+    classi.classifier = model.eval()
+    oclassi = OnlineEMGClassifier(classi, sensor.window_size, sensor.window_increment, odh, fg, port=g.PREDS_PORT, std_out=True)
+    oclassi.run()
 
 if __name__ == "__main__":
     __main()
