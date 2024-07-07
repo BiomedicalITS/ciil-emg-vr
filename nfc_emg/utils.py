@@ -134,13 +134,13 @@ def map_cid_to_ordered_name(gesture_img_dir: str, data_dir: str, gids=None):
 
     >>> map_cid_to_ordered_name(paths.gestures, paths.train, GESTURE_IDS)
     {
-        0: 'Chuck_Grip', 
-        1: 'Hand_Close', 
-        2: 'Hand_Open', 
-        3: 'Index_Extension', 
-        4: 'Index_Pinch', 
-        5: 'No_Motion', 
-        6: 'Wrist_Extension', 
+        0: 'Chuck_Grip',
+        1: 'Hand_Close',
+        2: 'Hand_Open',
+        3: 'Index_Extension',
+        4: 'Index_Pinch',
+        5: 'No_Motion',
+        6: 'Wrist_Extension',
         7: 'Wrist_Flexion'
     }
     """
@@ -203,26 +203,23 @@ def get_filter(
 
 
 def get_online_data_handler(
-    sampling_rate: float,
-    bandpass_freqs: float | list = (20, 450),
-    notch_freq: int = 50,
+    sensor: EmgSensor,
     imu: bool = True,
-    attach_filters: bool = True,
     **kwargs,
 ) -> OnlineDataHandler:
     """Get odh and install filters on it. Start listening to the stream.
 
     Args:
-        sampling_rate (float): EMG sampling rate
-        bandpass_freqs (float | list, optional). Defaults to [20, 350]
         kwargs: passed to OnlineDataHandler creator
 
     Returns:
-        OnlineDataHandler, with listening activated 
+        OnlineDataHandler, with listening activated
     """
     odh = OnlineDataHandler(imu_arr=imu, **kwargs)
-    if attach_filters:
-        odh.install_filter(get_filter(sampling_rate, bandpass_freqs, notch_freq))
+    if sensor.sensor_type != EmgSensorType.BioArmband:
+        odh.install_filter(
+            get_filter(sensor.fs, sensor.bandpass_freqs, sensor.notch_freq)
+        )
     odh.start_listening()
     return odh
 
@@ -236,13 +233,7 @@ def do_sgt(
     rep_time: int,
 ):
     sensor.start_streamer()
-    odh = get_online_data_handler(
-        sensor.fs,
-        sensor.bandpass_freqs,
-        sensor.notch_freq,
-        False,
-        False if sensor.sensor_type == EmgSensorType.BioArmband else True,
-    )
+    odh = get_online_data_handler(sensor, False)
     screen_guided_training(
         odh, gestures_list, gestures_dir, num_reps, rep_time, data_dir
     )

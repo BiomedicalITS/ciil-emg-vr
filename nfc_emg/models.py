@@ -21,177 +21,49 @@ from nfc_emg import datasets, utils
 from nfc_emg.sensors import EmgSensor
 
 
-class EmgConv2(L.LightningModule):
-    def __init__(self, input_shape, num_classes):
+class EmgCNN(L.LightningModule):
+    def __init__(self, num_channels: int, emg_shape: tuple, num_classes: int):
         """
         Parameters:
-            - input_shape: shape of input data
-            - num_classes: number of classes
-        """
-        super().__init__()
-        self.save_hyperparameters()
-        self.fine_tuning = False
-
-        self.input_shape = input_shape
-
-        self.scaler = StandardScaler()
-
-        hl_sizes = [64, 64, 64, 128, 64]
-
-        self.feature_extractor = nn.Sequential(
-            nn.Conv2d(1, hl_sizes[0], 5, padding=2),
-            nn.LeakyReLU(),
-            nn.BatchNorm2d(hl_sizes[0]),
-            nn.Conv2d(hl_sizes[0], hl_sizes[1], 3, padding=1),
-            nn.LeakyReLU(),
-            nn.BatchNorm2d(hl_sizes[1]),
-            nn.Conv2d(hl_sizes[1], hl_sizes[2], 3, padding=1),
-            nn.LeakyReLU(),
-            nn.BatchNorm2d(hl_sizes[2]),
-            nn.Flatten(),
-            nn.Linear(hl_sizes[2] * np.prod(input_shape), hl_sizes[3]),
-            nn.LeakyReLU(),
-            nn.BatchNorm1d(hl_sizes[3]),
-        )
-
-        self.fine_feature_extractor = nn.Sequential(
-            nn.Linear(hl_sizes[3], hl_sizes[4]),
-            nn.LeakyReLU(),
-            nn.BatchNorm1d(hl_sizes[4]),
-        )
-
-        self.classifier = nn.Linear(hl_sizes[4], num_classes)
-
-    def forward(self, x):
-        x = torch.reshape(x, (-1, 1, *self.input_shape))
-        out = self.feature_extractor(x)
-        out = self.fine_feature_extractor(out)
-        logits = self.classifier(out)
-        return logits
-
-    def training_step(self, batch, batch_idx):
-        # training_step defines the train loop. It is independent of forward
-        x, y_true = batch
-        y = self(x)
-        loss = F.cross_entropy(y, y_true)
-
-        acc = accuracy_score(
-            y_true.cpu().detach().numpy(),
-            np.argmax(y.cpu().detach().numpy(), axis=1),
-            normalize=True,
-        )
-        self.log("train_loss", loss)
-        self.log("train_acc", acc)
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        # training_step defines the train loop. It is independent of forward
-        x, y_true = batch
-        y = self(x)
-        loss = F.cross_entropy(y, y_true)
-        acc = accuracy_score(
-            y_true.cpu().detach().numpy(),
-            np.argmax(y.cpu().detach().numpy(), axis=1),
-            normalize=True,
-        )
-        self.log("val_loss", loss)
-        self.log("val_acc", acc)
-        return loss
-
-    def test_step(self, batch, batch_idx):
-        # training_step defines the train loop. It is independent of forward
-        x, y_true = batch
-        y: torch.Tensor = self(x)
-        loss: float = F.cross_entropy(y, y_true)
-
-        y = np.argmax(y.cpu().detach().numpy(), axis=1)
-        y_true = y_true.cpu().detach().numpy()
-
-        acc = accuracy_score(y_true, y, normalize=True)
-        try:
-            self.log("test_loss", loss)
-            self.log("test_acc", acc)
-        finally:
-            return {"loss": loss, "y_true": list(y_true), "y_pred": list(y)}
-
-    def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
-        return optimizer
-
-    def convert_input(self, x):
-        x = self.scaler.transform(x)
-        if not isinstance(x, torch.Tensor):
-            x = torch.from_numpy(x).to(self.device)
-        if len(x.shape) == 3:
-            x = x.reshape(-1, 1, *x.shape[1:])
-        elif len(x.shape) == 2:
-            x = x.reshape(-1, 1, 1, x.shape[1])
-        return x
-
-    def predict(self, x):
-        x = self.convert_input(x)
-        with torch.no_grad():
-            return np.argmax(self(x).cpu().detach().numpy(), axis=1)
-
-    def fit(self, train_dataloader, test_dataloader=None):
-        self.train()
-        trainer = L.Trainer(
-            max_epochs=10,
-            callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
-        )
-        trainer.fit(self, train_dataloader)
-
-        if test_dataloader is not None:
-            trainer.test(self, test_dataloader)
-
-    def set_finetune(self, fine_tuning: bool, num_classes: int):
-        self.fine_tuning = fine_tuning
-        for param in self.feature_extractor.parameters():
-            param.requires_grad_(fine_tuning)
-            print(param.requires_grad)
-        if num_classes != self.classifier.out_features:
-            print(
-                f"Setting to {num_classes} classes from {self.classifier.out_features}"
-            )
-            self.classifier = nn.Linear(self.classifier.in_features, num_classes)
-
-
-class EmgConv1(L.LightningModule):
-    def __init__(self, num_channels, length, num_classes):
-        """
-        Parameters:
-            - input_shape: shape of input data
+            - num_channels: number of channels (eg number of different features)
+            - emg_shape: shape of EMG. Must be a tuple, eg (8,) for Armbands and (4, 16) for Emager
             - num_classes: number of classes
         """
         super().__init__()
         self.save_hyperparameters()
 
         self.scaler = StandardScaler()
-        self.length = length
-        self.nc = num_channels
+
+        if len(emg_shape) == 1:
+            ConvNd = nn.Conv1d
+            BatchNormNd = nn.BatchNorm1d
+        else:
+            ConvNd = nn.Conv2d
+            BatchNormNd = nn.BatchNorm2d
+
+        self.emg_shape = emg_shape
+        self.num_channels = num_channels
 
         hl_sizes = [32, 32, 256]
         # hl_sizes = [num_features, 128]
 
         self.feature_extractor = nn.Sequential(
-            nn.Conv1d(num_channels, hl_sizes[0], 5, padding='same'),
+            ConvNd(num_channels, hl_sizes[0], 5, padding="same"),
+            BatchNormNd(hl_sizes[0]),
             nn.LeakyReLU(),
-            nn.BatchNorm1d(hl_sizes[0]),
-
-            nn.Conv1d(hl_sizes[0], hl_sizes[1], 3, padding='same'),
+            ConvNd(hl_sizes[0], hl_sizes[1], 3, padding="same"),
+            BatchNormNd(hl_sizes[1]),
             nn.LeakyReLU(),
-            nn.BatchNorm1d(hl_sizes[1]),
-
             nn.Flatten(),
-            nn.Linear(hl_sizes[1] * length, hl_sizes[2]),
-            nn.LeakyReLU(),
+            nn.Linear(hl_sizes[1] * np.prod(self.emg_shape), hl_sizes[2]),
             nn.BatchNorm1d(hl_sizes[2]),
+            nn.LeakyReLU(),
         )
 
         self.classifier = nn.Linear(hl_sizes[-1], num_classes)
 
     def forward(self, x):
-        x = torch.reshape(x, (-1, self.nc, self.length))
+        x = torch.reshape(x, (-1, self.num_channels, *self.emg_shape))
         out = self.feature_extractor(x)
         logits = self.classifier(out)
         return logits
@@ -273,7 +145,10 @@ class EmgConv1(L.LightningModule):
         data = self.scaler.transform(data)
         loader = datasets.get_dataloader(data.astype(np.float32), labels, 64, True)
 
-        trainer = L.Trainer(max_epochs=10, callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)])
+        trainer = L.Trainer(
+            max_epochs=10,
+            callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
+        )
         trainer.fit(self, loader)
 
         self.eval()
@@ -300,9 +175,9 @@ class EmgMLP(L.LightningModule):
 
         for i in range(len(hl_sizes) - 1):
             net.append(nn.Linear(hl_sizes[i], hl_sizes[i + 1]))
+            net.append(nn.BatchNorm1d(hl_sizes[i + 1]))
             net.append(nn.LeakyReLU())
             net.append(nn.Dropout(0.2))
-            net.append(nn.BatchNorm1d(hl_sizes[i + 1]))
 
         self.feature_extractor = nn.Sequential(*net)
         self.classifier = nn.Linear(hl_sizes[-1], num_classes)
@@ -392,7 +267,10 @@ class EmgMLP(L.LightningModule):
         data = self.scaler.transform(data)
         loader = datasets.get_dataloader(data.astype(np.float32), labels, 64, True)
 
-        trainer = L.Trainer(max_epochs=10, callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)])
+        trainer = L.Trainer(
+            max_epochs=10,
+            callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
+        )
         trainer.fit(self, loader)
 
         self.eval()
@@ -406,28 +284,24 @@ class EmgSCNN(L.LightningModule):
         """
         super().__init__()
         self.save_hyperparameters()
-        
+
         hl_sizes = [32, 32, 32, 128, 64]
 
         self.feature_extractor = nn.Sequential(
             nn.Conv2d(1, hl_sizes[0], 5, padding=2),
-            nn.LeakyReLU(),
             nn.BatchNorm2d(hl_sizes[0]),
-
+            nn.LeakyReLU(),
             nn.Conv2d(hl_sizes[0], hl_sizes[1], 3, padding=1),
-            nn.LeakyReLU(),
             nn.BatchNorm2d(hl_sizes[1]),
-
-            nn.Conv2d(hl_sizes[1], hl_sizes[2], 3, padding=1),
             nn.LeakyReLU(),
+            nn.Conv2d(hl_sizes[1], hl_sizes[2], 3, padding=1),
             nn.BatchNorm2d(hl_sizes[2]),
-
+            nn.LeakyReLU(),
             nn.Flatten(),
             nn.Linear(hl_sizes[2] * np.prod(input_shape), hl_sizes[3]),
+            nn.BatchNorm1d(hl_sizes[3]),
             nn.LeakyReLU(),
             nn.Dropout(),
-            nn.BatchNorm1d(hl_sizes[3]),
-
             nn.Linear(hl_sizes[3], hl_sizes[4]),
             nn.BatchNorm1d(hl_sizes[4]),
         )
@@ -571,9 +445,7 @@ class EmgSCNNWrapper:
         return self.classifier.predict(embeddings)
 
     @staticmethod
-    def load_from_disk(
-        model_path: str, emg_shape: tuple, accelerator: str = "cpu"
-    ):
+    def load_from_disk(model_path: str, emg_shape: tuple, accelerator: str = "cpu"):
         """
         Load an SCNN model from disk in evaluation mode.
         """
@@ -599,7 +471,7 @@ class EmgSCNNWrapper:
             {
                 "model_state_dict": self.model.state_dict(),
                 "classifier": self.classifier,
-                "scaler": self.scaler
+                "scaler": self.scaler,
             },
             model_path,
         )
@@ -608,9 +480,12 @@ class EmgSCNNWrapper:
         )
 
 
-def save_nn(model: EmgConv2 | EmgMLP, out_path: str):
+def save_nn(model: EmgCNN | EmgMLP, out_path: str):
     print(f"Saving model to {out_path}")
-    torch.save({"model_state_dict": model.state_dict(), "scaler": model.scaler}, out_path)
+    torch.save(
+        {"model_state_dict": model.state_dict(), "scaler": model.scaler}, out_path
+    )
+
 
 def load_mlp(model_path: str):
     """
@@ -626,7 +501,8 @@ def load_mlp(model_path: str):
     model.scaler = chkpt["scaler"]
     return model.eval()
 
-def load_conv2(model_path: str, num_channels: int, emg_shape: tuple, finetune: bool):
+
+def load_conv(model_path: str, num_channels: int, emg_shape: tuple):
     """
     Load a model checkpoint from path and return it, including the StandardScaler
     """
@@ -634,28 +510,14 @@ def load_conv2(model_path: str, num_channels: int, emg_shape: tuple, finetune: b
     chkpt = torch.load(model_path)
     s_dict = chkpt["model_state_dict"]
     n_classes = s_dict["classifier.weight"].shape[0]
-    model = EmgConv2(num_channels, emg_shape, n_classes)
-    model.load_state_dict(s_dict)
-    model.scaler = chkpt["scaler"]
-    model.set_finetune(finetune, n_classes)
-    return model.eval()
-    
-def load_conv1(model_path: str, num_channels: int, emg_shape: tuple):
-    """
-    Load a model checkpoint from path and return it, including the StandardScaler
-    """
-    print(f"Loading model from {model_path}")
-    chkpt = torch.load(model_path)
-    s_dict = chkpt["model_state_dict"]
-    n_classes = s_dict["classifier.weight"].shape[0]
-    model = EmgConv1(num_channels, emg_shape, n_classes)
+    model = EmgCNN(num_channels, emg_shape, n_classes)
     model.load_state_dict(s_dict)
     model.scaler = chkpt["scaler"]
     return model.eval()
-   
+
 
 def train_nn(
-    model: EmgConv2 | EmgMLP,
+    model: EmgCNN | EmgMLP,
     sensor: EmgSensor,
     features: list,
     data_dir: str,
@@ -684,18 +546,27 @@ def train_nn(
 
     train_win, train_labels = datasets.prepare_data(train_odh, sensor)
     train_data = FeatureExtractor().extract_features(features, train_win, array=True)
-    train_data = model.scaler.fit_transform(train_data) if not finetune else model.scaler.transform(train_data)
-    train_loader = datasets.get_dataloader(train_data.astype(np.float32), train_labels, 64, True)
+    train_data = (
+        model.scaler.fit_transform(train_data)
+        if not finetune
+        else model.scaler.transform(train_data)
+    )
+    train_loader = datasets.get_dataloader(
+        train_data.astype(np.float32), train_labels, 64, True
+    )
 
     if len(test_reps) > 0:
         val_win, val_labels = datasets.prepare_data(val_odh, sensor)
         val_data = FeatureExtractor().extract_features(features, val_win, array=True)
         val_data = model.scaler.transform(val_data)
-        val_loader = datasets.get_dataloader(val_data.astype(np.float32), val_labels, 256, False)
+        val_loader = datasets.get_dataloader(
+            val_data.astype(np.float32), val_labels, 256, False
+        )
 
-    trainer = L.Trainer(max_epochs=15, callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)])
+    trainer = L.Trainer(
+        max_epochs=15, callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)]
+    )
     trainer.fit(model, train_loader, val_loader)
-
 
     return model
 
@@ -710,7 +581,7 @@ def main_train_nn(
     data_dir: str,
     model_out_path: str,
     num_reps: int,
-    rep_time: int
+    rep_time: int,
 ):
     if sample_data:
         utils.do_sgt(sensor, gestures_list, gestures_dir, data_dir, num_reps, rep_time)
@@ -724,22 +595,31 @@ def main_train_nn(
         train_reps = reps[: int(0.8 * len(reps))]
         test_reps = reps[int(0.8 * len(reps)) :]
 
-    model = train_nn(model, sensor, features, data_dir, classes, train_reps, test_reps, True if num_reps<3 else False)
+    model = train_nn(
+        model,
+        sensor,
+        features,
+        data_dir,
+        classes,
+        train_reps,
+        test_reps,
+        True if num_reps < 3 else False,
+    )
     save_nn(model, model_out_path)
     return model
 
 
 def main_test_nn(
-    model: EmgConv2 | EmgMLP,
+    model: EmgCNN | EmgMLP,
     sensor: EmgSensor,
-    features: list,
-    data_dir: str,
     sample_data: bool,
+    features: list,
     gestures_list: list,
     gestures_dir: str,
+    data_dir: str,
 ):
     if sample_data:
-        utils.do_sgt(sensor, gestures_list, gestures_dir, data_dir, 1, 3)
+        utils.do_sgt(sensor, gestures_list, gestures_dir, data_dir, 2, 3)
 
     classes = utils.get_cid_from_gid(gestures_dir, data_dir, gestures_list)
     reps = utils.get_reps(data_dir)
@@ -748,7 +628,7 @@ def main_test_nn(
     odh = datasets.get_offline_datahandler(data_dir, classes, reps)
     data, labels = datasets.prepare_data(odh, sensor)
     data = FeatureExtractor().extract_features(features, data, array=True)
-    
+
     classifier = EMGClassifier()
     classifier.classifier = model.eval()
     classifier.add_majority_vote(sensor.maj_vote_n)
@@ -795,7 +675,7 @@ def train_scnn(
     # fi.filter(val_odh)
 
     # Generate triplets and train
-    
+
     train_windows, train_labels = datasets.prepare_data(train_odh, sensor)
     train_data = FeatureExtractor().getMAVfeat(train_windows)
     fit_data = np.copy(train_data)
@@ -808,17 +688,27 @@ def train_scnn(
     val_data = np.reshape(val_data, (-1, 1, *sensor.emg_shape))
 
     train_loader = datasets.get_triplet_dataloader(
-        train_data.astype(np.float32), train_labels, 32, True, len(train_data) // (3 * len(classes))
+        train_data.astype(np.float32),
+        train_labels,
+        32,
+        True,
+        len(train_data) // (3 * len(classes)),
     )
     val_loader = datasets.get_triplet_dataloader(
-        val_data.astype(np.float32), val_labels, 256, False, len(val_data) // (3 * len(classes))
+        val_data.astype(np.float32),
+        val_labels,
+        256,
+        False,
+        len(val_data) // (3 * len(classes)),
     )
 
     trainer = L.Trainer(max_epochs=15)
     trainer.fit(mw.model, train_loader, val_loader)
-    
+
     mw.model.eval()
-    mw.fit(fit_data, train_labels) # Fit output classifier and bypass double-scaling of data
+    mw.fit(
+        fit_data, train_labels
+    )  # Fit output classifier and bypass double-scaling of data
     return mw
 
 

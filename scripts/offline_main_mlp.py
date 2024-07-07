@@ -8,7 +8,7 @@ from nfc_emg import utils
 from nfc_emg.sensors import EmgSensor, EmgSensorType
 from nfc_emg.paths import NfcPaths
 from nfc_emg import models
-from nfc_emg.models import EmgMLP, EmgConv1, main_train_nn, main_test_nn
+from nfc_emg.models import EmgMLP, EmgCNN, main_train_nn, main_test_nn
 
 import configs as g
 
@@ -34,7 +34,7 @@ def __main():
 
     # model = models.load_mlp(paths.model)
     # model = EmgMLP(len(g.FEATURES) * np.prod(sensor.emg_shape), len(g.FUNCTIONAL_SET))
-    model = EmgConv1(len(g.FEATURES), np.prod(sensor.emg_shape), len(g.FUNCTIONAL_SET))
+    model = EmgCNN(len(g.FEATURES), np.prod(sensor.emg_shape), len(g.FUNCTIONAL_SET))
 
     model = main_train_nn(
         model=model,

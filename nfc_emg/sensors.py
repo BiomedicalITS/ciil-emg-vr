@@ -1,5 +1,4 @@
 from enum import Enum
-import numpy as np
 
 from libemg.streamers import sifibridge_streamer, myo_streamer, emager_streamer
 
@@ -23,10 +22,10 @@ class EmgSensor:
         self.sensor_type = sensor_type
         if sensor_type == EmgSensorType.BioArmband:
             self.fs = 1500
-            self.emg_shape = (1, 8)
+            self.emg_shape = (8,)
         elif sensor_type == EmgSensorType.MyoArmband:
             self.fs = 200
-            self.emg_shape = (1, 8)
+            self.emg_shape = (8,)
         elif sensor_type == EmgSensorType.Emager:
             self.fs = 1000
             self.emg_shape = (4, 16)
