@@ -1,4 +1,6 @@
 from libemg.feature_extractor import FeatureExtractor
+from nfc_emg.sensors import EmgSensorType
+
 try:
     import torch
     from lightning.pytorch import seed_everything
@@ -22,6 +24,9 @@ FINE_SET = [1, 2, 3, 8, 14, 26, 30]
 
 _fe = FeatureExtractor()
 FEATURES = _fe.get_feature_groups()["TDPSD"]
+
+SUBJECT = "vr"
+SENSOR = EmgSensorType.BioArmband
 
 WAIT_TCP_PORT = 12346
 PSEUDO_LABELS_PORT = 12350

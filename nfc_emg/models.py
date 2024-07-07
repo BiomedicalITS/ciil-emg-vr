@@ -21,7 +21,7 @@ from nfc_emg import datasets, utils
 from nfc_emg.sensors import EmgSensor
 
 
-class EmgCNN(L.LightningModule):
+class EmgConv2(L.LightningModule):
     def __init__(self, input_shape, num_classes):
         """
         Parameters:
@@ -155,6 +155,130 @@ class EmgCNN(L.LightningModule):
             )
             self.classifier = nn.Linear(self.classifier.in_features, num_classes)
 
+
+class EmgConv1(L.LightningModule):
+    def __init__(self, num_channels, length, num_classes):
+        """
+        Parameters:
+            - input_shape: shape of input data
+            - num_classes: number of classes
+        """
+        super().__init__()
+        self.save_hyperparameters()
+
+        self.scaler = StandardScaler()
+        self.length = length
+        self.nc = num_channels
+
+        hl_sizes = [32, 32, 256]
+        # hl_sizes = [num_features, 128]
+
+        self.feature_extractor = nn.Sequential(
+            nn.Conv1d(num_channels, hl_sizes[0], 5, padding='same'),
+            nn.LeakyReLU(),
+            nn.BatchNorm1d(hl_sizes[0]),
+
+            nn.Conv1d(hl_sizes[0], hl_sizes[1], 3, padding='same'),
+            nn.LeakyReLU(),
+            nn.BatchNorm1d(hl_sizes[1]),
+
+            nn.Flatten(),
+            nn.Linear(hl_sizes[1] * length, hl_sizes[2]),
+            nn.LeakyReLU(),
+            nn.BatchNorm1d(hl_sizes[2]),
+        )
+
+        self.classifier = nn.Linear(hl_sizes[-1], num_classes)
+
+    def forward(self, x):
+        x = torch.reshape(x, (-1, self.nc, self.length))
+        out = self.feature_extractor(x)
+        logits = self.classifier(out)
+        return logits
+
+    def convert_input(self, x):
+        """
+        Convert arbitrary input to a Torch tensor
+        """
+        x = self.scaler.transform(x)
+        if not isinstance(x, torch.Tensor):
+            x = torch.from_numpy(x)
+        return x.float().to(self.device)
+
+    # ----- Lightning -----
+
+    def training_step(self, batch, batch_idx):
+        x, y_true = batch
+        y = self(x)
+        loss = F.cross_entropy(y, y_true)
+
+        acc = accuracy_score(
+            y_true.cpu().detach().numpy(),
+            np.argmax(y.cpu().detach().numpy(), axis=1),
+            normalize=True,
+        )
+        self.log("train_loss", loss)
+        self.log("train_acc", acc)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        # training_step defines the train loop. It is independent of forward
+        x, y_true = batch
+        y = self(x)
+        loss = F.cross_entropy(y, y_true)
+        acc = accuracy_score(
+            y_true.cpu().detach().numpy(),
+            np.argmax(y.cpu().detach().numpy(), axis=1),
+            normalize=True,
+        )
+        self.log("val_loss", loss)
+        self.log("val_acc", acc)
+        return loss
+
+    def test_step(self, batch, batch_idx):
+        x, y_true = batch
+        y: torch.Tensor = self(x)
+        loss: float = F.cross_entropy(y, y_true)
+
+        y = np.argmax(y.cpu().detach().numpy(), axis=1)
+        y_true = y_true.cpu().detach().numpy()
+
+        acc = accuracy_score(y_true, y, normalize=True)
+        self.log("test_loss", loss)
+        self.log("test_acc", acc)
+        return {"loss": loss, "y_true": list(y_true), "y_pred": list(y)}
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
+        return optimizer
+
+    # ----- LibEMG -----
+
+    def predict_proba(self, x):
+        x = self.convert_input(x)
+        with torch.no_grad():
+            return F.softmax(self(x), dim=1).cpu().detach().numpy()
+
+    def predict(self, x):
+        return np.argmax(self.predict_proba(x), axis=1)
+
+    def fit(self, data: np.ndarray, labels: np.ndarray):
+        """
+        Fit the model from data. Data should consist of the extracted features (N, C, L), where L is the number of EMG channels.
+
+        This function takes care of data normalization.
+        """
+        self.train()
+
+        data = self.scaler.transform(data)
+        loader = datasets.get_dataloader(data.astype(np.float32), labels, 64, True)
+
+        trainer = L.Trainer(max_epochs=10, callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)])
+        trainer.fit(self, loader)
+
+        self.eval()
+
+
 class EmgMLP(L.LightningModule):
     def __init__(self, num_features, num_classes):
         """
@@ -167,7 +291,8 @@ class EmgMLP(L.LightningModule):
 
         self.scaler = StandardScaler()
 
-        hl_sizes = [num_features, 128, 256, 64, 32, 10]
+        hl_sizes = [num_features, 128, 256]
+        # hl_sizes = [num_features, 100]
 
         net = [
             nn.Flatten(),
@@ -176,6 +301,7 @@ class EmgMLP(L.LightningModule):
         for i in range(len(hl_sizes) - 1):
             net.append(nn.Linear(hl_sizes[i], hl_sizes[i + 1]))
             net.append(nn.LeakyReLU())
+            net.append(nn.Dropout(0.2))
             net.append(nn.BatchNorm1d(hl_sizes[i + 1]))
 
         self.feature_extractor = nn.Sequential(*net)
@@ -198,7 +324,7 @@ class EmgMLP(L.LightningModule):
         x = self.scaler.transform(x)
         if not isinstance(x, torch.Tensor):
             x = torch.from_numpy(x)
-        return x.type(torch.float32).to(self.device)
+        return x.float().to(self.device)
 
     # ----- Lightning -----
 
@@ -260,16 +386,16 @@ class EmgMLP(L.LightningModule):
     def predict(self, x):
         return np.argmax(self.predict_proba(x), axis=1)
 
-    def fit(self, train_dataloader, test_dataloader=None):
+    def fit(self, data, labels):
         self.train()
-        trainer = L.Trainer(
-            max_epochs=10,
-            callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
-        )
-        trainer.fit(self, train_dataloader)
 
-        if test_dataloader is not None:
-            trainer.test(self, test_dataloader)
+        data = self.scaler.transform(data)
+        loader = datasets.get_dataloader(data.astype(np.float32), labels, 64, True)
+
+        trainer = L.Trainer(max_epochs=10, callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)])
+        trainer.fit(self, loader)
+
+        self.eval()
 
 
 class EmgSCNN(L.LightningModule):
@@ -280,23 +406,28 @@ class EmgSCNN(L.LightningModule):
         """
         super().__init__()
         self.save_hyperparameters()
-
+        
         hl_sizes = [32, 32, 32, 128, 64]
 
         self.feature_extractor = nn.Sequential(
             nn.Conv2d(1, hl_sizes[0], 5, padding=2),
             nn.LeakyReLU(),
             nn.BatchNorm2d(hl_sizes[0]),
+
             nn.Conv2d(hl_sizes[0], hl_sizes[1], 3, padding=1),
             nn.LeakyReLU(),
             nn.BatchNorm2d(hl_sizes[1]),
+
             nn.Conv2d(hl_sizes[1], hl_sizes[2], 3, padding=1),
             nn.LeakyReLU(),
             nn.BatchNorm2d(hl_sizes[2]),
+
             nn.Flatten(),
             nn.Linear(hl_sizes[2] * np.prod(input_shape), hl_sizes[3]),
             nn.LeakyReLU(),
+            nn.Dropout(),
             nn.BatchNorm1d(hl_sizes[3]),
+
             nn.Linear(hl_sizes[3], hl_sizes[4]),
             nn.BatchNorm1d(hl_sizes[4]),
         )
@@ -323,6 +454,7 @@ class EmgSCNN(L.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
         return optimizer
+
 
 class CosineSimilarity(BaseEstimator):
     def __init__(self, num_classes: int | None = None, dims: int | None = None):
@@ -385,8 +517,9 @@ class EmgSCNNWrapper:
     ):
         """The SCNN model wrapper. It includes an EMGSCNN model and a classifier."""
         self.model = model
-        self.mean = 0.0
-        self.std = 1.0
+
+        self.scaler = StandardScaler()
+
         self.attach_classifier(classifier)
 
     def attach_classifier(self, classifier: BaseEstimator):
@@ -397,15 +530,15 @@ class EmgSCNNWrapper:
         """
         self.classifier = classifier
 
-    def set_normalize(self, x):
-        self.mean = np.mean(x, axis=0, keepdims=True)
-        self.std = np.std(x, axis=0, keepdims=True)
+    def set_normalize(self, x: np.ndarray):
+        self.scaler.fit(x.squeeze())
         return self.normalize(x)
 
-    def normalize(self, x):
-        return (x - self.mean) / self.std
+    def normalize(self, x: np.ndarray):
+        orig_shape = x.shape
+        return self.scaler.transform(x.squeeze()).reshape(orig_shape)
 
-    def predict_embeddings(self, x):
+    def predict_embeddings(self, x: np.ndarray | torch.Tensor):
         if len(x.shape) == 3:
             x = x.reshape(-1, 1, *x.shape[1:])
         elif len(x.shape) == 2:
@@ -450,8 +583,7 @@ class EmgSCNNWrapper:
         model.load_state_dict(chkpt["model_state_dict"])
 
         mw = EmgSCNNWrapper(model.to(accelerator).eval(), chkpt["classifier"])
-        mw.mean = chkpt["mean"]
-        mw.std = chkpt["std"]
+        mw.scaler = chkpt["scaler"]
 
         print(
             f"Loaded SCNN model from {model_path}. Classifier is {mw.classifier.__class__.__name__}"
@@ -467,8 +599,7 @@ class EmgSCNNWrapper:
             {
                 "model_state_dict": self.model.state_dict(),
                 "classifier": self.classifier,
-                "mean": self.mean,
-                "std": self.std,
+                "scaler": self.scaler
             },
             model_path,
         )
@@ -477,8 +608,8 @@ class EmgSCNNWrapper:
         )
 
 
-def save_nn(model: L.LightningModule, out_path: str):
-    print(f"Saving CNN model to {out_path}.")
+def save_nn(model: EmgConv2 | EmgMLP, out_path: str):
+    print(f"Saving model to {out_path}")
     torch.save({"model_state_dict": model.state_dict(), "scaler": model.scaler}, out_path)
 
 def load_mlp(model_path: str):
@@ -495,7 +626,7 @@ def load_mlp(model_path: str):
     model.scaler = chkpt["scaler"]
     return model.eval()
 
-def load_cnn(model_path: str, num_channels: int, emg_shape: tuple, finetune: bool):
+def load_conv2(model_path: str, num_channels: int, emg_shape: tuple, finetune: bool):
     """
     Load a model checkpoint from path and return it, including the StandardScaler
     """
@@ -503,14 +634,28 @@ def load_cnn(model_path: str, num_channels: int, emg_shape: tuple, finetune: boo
     chkpt = torch.load(model_path)
     s_dict = chkpt["model_state_dict"]
     n_classes = s_dict["classifier.weight"].shape[0]
-    model = EmgCNN(num_channels, emg_shape, n_classes)
+    model = EmgConv2(num_channels, emg_shape, n_classes)
     model.load_state_dict(s_dict)
     model.scaler = chkpt["scaler"]
     model.set_finetune(finetune, n_classes)
     return model.eval()
     
+def load_conv1(model_path: str, num_channels: int, emg_shape: tuple):
+    """
+    Load a model checkpoint from path and return it, including the StandardScaler
+    """
+    print(f"Loading model from {model_path}")
+    chkpt = torch.load(model_path)
+    s_dict = chkpt["model_state_dict"]
+    n_classes = s_dict["classifier.weight"].shape[0]
+    model = EmgConv1(num_channels, emg_shape, n_classes)
+    model.load_state_dict(s_dict)
+    model.scaler = chkpt["scaler"]
+    return model.eval()
+   
+
 def train_nn(
-    model: EmgCNN | EmgMLP,
+    model: EmgConv2 | EmgMLP,
     sensor: EmgSensor,
     features: list,
     data_dir: str,
@@ -519,14 +664,8 @@ def train_nn(
     test_reps: list,
     finetune: bool = False,
 ):
-    """Train a NN model
-
-    Args:
-        data_dir (str): directory of pre-recorded data
-        classes: class ids (CIDs)
-        train_reps (list): which repetitions to train on
-        test_reps (list): which repetitions to test on (can be empty)
-        moving_avg_n (int): _description_
+    """
+    Train/finetune a NN model
 
     Returns the trained model
     """
@@ -537,74 +676,28 @@ def train_nn(
 
     odh = datasets.get_offline_datahandler(data_dir, classes, train_reps + test_reps)
     train_odh = odh.isolate_data("reps", train_reps)
-    test_odh = odh.isolate_data("reps", test_reps)
+    val_odh = odh.isolate_data("reps", test_reps)
 
     # fi = utils.get_filter(sensor.fs, sensor.bandpass_freqs)
     # fi.filter(train_odh)
     # fi.filter(test_odh)
 
-    fe = FeatureExtractor()
-
-    data, labels = datasets.prepare_data(train_odh, sensor)
-    data = fe.extract_features(features, data, array=True).astype(np.float32)
-    if finetune:
-        data = model.scaler.transform(data)
-    else:
-        data = model.scaler.fit_transform(data)
-    train_loader = datasets.get_dataloader(data, labels, 64, True)
-
-    model.train()
-    trainer = L.Trainer(
-        max_epochs=10,
-        callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
-    )
-    trainer.fit(model, train_loader)
+    train_win, train_labels = datasets.prepare_data(train_odh, sensor)
+    train_data = FeatureExtractor().extract_features(features, train_win, array=True)
+    train_data = model.scaler.fit_transform(train_data) if not finetune else model.scaler.transform(train_data)
+    train_loader = datasets.get_dataloader(train_data.astype(np.float32), train_labels, 64, True)
 
     if len(test_reps) > 0:
-        data, labels = datasets.prepare_data(test_odh, sensor)
-        data = fe.extract_features(features, data, array=True).astype(np.float32)
-        data = model.scaler.transform(data)
-        # data = datasets.process_data(data).reshape(-1, *sensor.emg_shape)
-        test_loader = datasets.get_dataloader(data, labels, 256, False)
-        trainer.test(model, test_loader)
+        val_win, val_labels = datasets.prepare_data(val_odh, sensor)
+        val_data = FeatureExtractor().extract_features(features, val_win, array=True)
+        val_data = model.scaler.transform(val_data)
+        val_loader = datasets.get_dataloader(val_data.astype(np.float32), val_labels, 256, False)
+
+    trainer = L.Trainer(max_epochs=15, callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)])
+    trainer.fit(model, train_loader, val_loader)
+
 
     return model
-
-
-def test_nn(
-    model: EmgCNN | EmgMLP,
-    sensor: EmgSensor,
-    features: list,
-    data_dir: str,
-    classes: list,
-    test_reps: list,
-):
-    """Test model. Returns (y_pred, y_true)."""
-    if not isinstance(test_reps, list):
-        test_reps = [test_reps]
-
-    # fi = utils.get_filter(sensor.fs, sensor.bandpass_freqs)
-    # fi.filter(odh)
-
-    fe = FeatureExtractor()
-
-    odh = datasets.get_offline_datahandler(data_dir, classes, test_reps)
-    data, labels = datasets.prepare_data(odh, sensor)
-    data = fe.extract_features(features, data, array=True).astype(np.float32)
-    data = model.scaler.fit_transform(data)
-    data_loader = datasets.get_dataloader(data, labels, 128, False)
-    # data = np.reshape(data, (-1, *sensor.emg_shape)).astype(np.float32)
-
-    model.eval()
-    y_pred, y_true = [], []
-    with torch.no_grad():
-        for i, batch in enumerate(data_loader):
-            # batch = (x, y_true)
-            batch = [b.to(model.device) for b in batch]
-            ret = model.test_step(batch, i)
-            y_pred.extend(ret["y_pred"])
-            y_true.extend(ret["y_true"])
-    return np.array(y_pred), np.array(y_true)
 
 
 def main_train_nn(
@@ -637,7 +730,7 @@ def main_train_nn(
 
 
 def main_test_nn(
-    model: L.LightningModule,
+    model: EmgConv2 | EmgMLP,
     sensor: EmgSensor,
     features: list,
     data_dir: str,
@@ -646,24 +739,33 @@ def main_test_nn(
     gestures_dir: str,
 ):
     if sample_data:
-        utils.do_sgt(sensor, gestures_list, gestures_dir, data_dir, 2, 3)
+        utils.do_sgt(sensor, gestures_list, gestures_dir, data_dir, 1, 3)
 
     classes = utils.get_cid_from_gid(gestures_dir, data_dir, gestures_list)
     reps = utils.get_reps(data_dir)
     idle_cid = utils.map_gid_to_cid(gestures_dir, data_dir)[1]
 
-    preds, labels = test_nn(model, sensor, features, data_dir, classes, reps)
-    preds_maj = majority_vote(preds, sensor.maj_vote_n)
+    odh = datasets.get_offline_datahandler(data_dir, classes, reps)
+    data, labels = datasets.prepare_data(odh, sensor)
+    data = FeatureExtractor().extract_features(features, data, array=True)
+    
+    classifier = EMGClassifier()
+    classifier.classifier = model.eval()
+    classifier.add_majority_vote(sensor.maj_vote_n)
+    # classifier.add_rejection(0.9)
+
+    preds, _ = classifier.run(data)
 
     om = OfflineMetrics()
-    metrics = ["CA", "AER", "INS", "CONF_MAT"]
+    metrics = ["CA", "AER", "REJ_RATE", "CONF_MAT"]
     results = om.extract_offline_metrics(metrics, labels, preds, idle_cid)
-    results_maj = om.extract_offline_metrics(metrics, labels, preds_maj, idle_cid)
 
-    print(f"CA RAW: {results['CA']}")
-    print(f"CA MAJ: {results_maj['CA']}")
+    for key in results:
+        if key == "CONF_MAT":
+            continue
+        print(f"{key}: {results[key]}")
 
-    return results_maj
+    return results
 
 
 def train_scnn(
@@ -688,33 +790,35 @@ def train_scnn(
     train_odh = odh.isolate_data("reps", train_reps)
     val_odh = odh.isolate_data("reps", val_reps)
 
-    # Generate triplets and train
-    fe = FeatureExtractor()
+    # fi = utils.get_filter(sensor.fs, sensor.bandpass_freqs, sensor.notch_freq)
+    # fi.filter(train_odh)
+    # fi.filter(val_odh)
 
+    # Generate triplets and train
+    
     train_windows, train_labels = datasets.prepare_data(train_odh, sensor)
-    train_data = fe.getMAVfeat(train_windows)
-    train_data = np.reshape(train_data, (-1, 1, *sensor.emg_shape)).astype(np.float32)
-    train_data = mw.set_normalize(train_data)
+    train_data = FeatureExtractor().getMAVfeat(train_windows)
+    fit_data = np.copy(train_data)
+    train_data = mw.scaler.fit_transform(train_data)
+    train_data = np.reshape(train_data, (-1, 1, *sensor.emg_shape))
 
     val_windows, val_labels = datasets.prepare_data(val_odh, sensor)
-    val_data = fe.getMAVfeat(val_windows)
-    val_data = np.reshape(val_data, (-1, 1, *sensor.emg_shape)).astype(np.float32)
-    val_data = mw.normalize(val_data)
+    val_data = FeatureExtractor().getMAVfeat(val_windows)
+    val_data = mw.scaler.transform(val_data)
+    val_data = np.reshape(val_data, (-1, 1, *sensor.emg_shape))
 
     train_loader = datasets.get_triplet_dataloader(
-        train_data, train_labels, 32, True, len(train_data) // (3 * len(classes))
+        train_data.astype(np.float32), train_labels, 32, True, len(train_data) // (3 * len(classes))
     )
     val_loader = datasets.get_triplet_dataloader(
-        val_data, val_labels, 256, False, len(val_data) // (3 * len(classes))
+        val_data.astype(np.float32), val_labels, 256, False, len(val_data) // (3 * len(classes))
     )
 
-    trainer = L.Trainer(
-        max_epochs=15,
-        callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
-    )
+    trainer = L.Trainer(max_epochs=15)
     trainer.fit(mw.model, train_loader, val_loader)
+    
     mw.model.eval()
-    mw.fit(train_data * mw.std + mw.mean, train_labels) # Fit output classifier and bypass double-scaling of data
+    mw.fit(fit_data, train_labels) # Fit output classifier and bypass double-scaling of data
     return mw
 
 
@@ -766,7 +870,7 @@ def main_finetune_scnn(
     odh = datasets.get_offline_datahandler(data_dir, classes, reps)
     data_windows, labels = datasets.prepare_data(odh, sensor)
     data = fe.getMAVfeat(data_windows)
-    data = np.reshape(data, (-1, 1, *sensor.emg_shape)).astype(np.float32)
+    data = np.reshape(data, (-1, 1, *sensor.emg_shape))
 
     # Fit classifier
     mw.fit(data, labels)
@@ -788,13 +892,13 @@ def main_test_scnn(
     idle_id = utils.map_gid_to_cid(gestures_dir, data_dir)[1]
     reps = utils.get_reps(data_dir)
 
-    fe = FeatureExtractor()
-
     odh = datasets.get_offline_datahandler(data_dir, classes, reps)
-    data_windows, test_labels = datasets.prepare_data(odh, sensor)
+    # fi = utils.get_filter(sensor.fs, sensor.bandpass_freqs, sensor.notch_freq)
+    # fi.filter(odh)
 
-    data = fe.getMAVfeat(data_windows)
-    data = np.reshape(data, (-1, 1, *sensor.emg_shape)).astype(np.float32)
+    data_windows, test_labels = datasets.prepare_data(odh, sensor)
+    # data = FeatureExtractor().getMEANfeat(data_windows)
+    data = FeatureExtractor().getMAVfeat(data_windows)
 
     mw.model.eval()
 
@@ -803,8 +907,9 @@ def main_test_scnn(
 
     acc = accuracy_score(test_labels, preds)
     acc_maj = accuracy_score(test_labels, preds_maj)
-    print("Raw accuracy:", acc * 100)
-    print("Majority vote accuracy:", acc_maj * 100)
+
+    print(f"Raw accuracy: {acc*100:.2f}")
+    print(f"Majority vote accuracy: {acc_maj*100:.2f}")
 
     classifier = EMGClassifier()
     classifier.classifier = mw
@@ -819,7 +924,6 @@ def main_test_scnn(
     # https://libemg.github.io/libemg/documentation/evaluation/evaluation.html
     om = OfflineMetrics()
     metrics = ["CA", "AER", "REJ_RATE", "CONF_MAT"]
-
     results = om.extract_offline_metrics(
         metrics, test_labels, preds, null_label=idle_id
     )

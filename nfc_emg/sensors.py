@@ -16,8 +16,8 @@ class EmgSensor:
         sensor_type: EmgSensorType,
         notch_freq: int = 50,
         bandpass_freqs: tuple = (20, 450),
-        window_size_ms: int = 25,
-        window_inc_ms: int = 10,
+        window_size_ms: int = 150,
+        window_inc_ms: int = 20,
         majority_vote_ms: int = 200,
     ):
         self.sensor_type = sensor_type
