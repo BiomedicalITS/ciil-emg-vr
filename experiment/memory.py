@@ -11,14 +11,14 @@ class Memory:
         Current targets for the model
         """
 
-        self.experience_data = []
+        self.experience_data = np.zeros
         """
         Inputs for the saved experience
         """
 
-        self.experience_context = []
+        self.experience_context = np.zeros((0, 4), dtype=np.int8)
         """
-        Correct options (given the context)
+        Correct options (given the context).
         """
 
         self.experience_outcome = []
@@ -27,8 +27,14 @@ class Memory:
         """
 
         self.experience_ids = []
+        """
+        ID of each experiment
+        """
 
         self.experience_timestamps = []
+        """
+        List of time.time() timestamps
+        """
 
         self.memories_stored = 0
         """
@@ -44,10 +50,10 @@ class Memory:
             if not len(self):
                 return other_memory
             else:
-                self.experience_targets = torch.cat(
+                self.experience_targets = np.vstack(
                     (self.experience_targets, other_memory.experience_targets)
                 )
-                self.experience_data = torch.vstack(
+                self.experience_data = np.vstack(
                     (self.experience_data, other_memory.experience_data)
                 )
                 self.experience_context = np.concatenate(
@@ -61,9 +67,7 @@ class Memory:
                         )
                     )
                 )
-                self.experience_outcome = np.concatenate(
-                    (self.experience_outcome, other_memory.experience_outcome)
-                )
+                self.experience_outcome.extend(other_memory.experience_outcome)
                 self.experience_timestamps.extend(other_memory.experience_timestamps)
                 self.memories_stored += other_memory.memories_stored
         return self

@@ -44,9 +44,10 @@ def main():
             config.paths.test,
         )
     elif config.stage == ExperimentStage.GAME:
-        print("TODO: memory_manager fix timestamp")
         print("TODO: NfcPaths create new folders for memory and models")
-        print("TODO: Probably Lock the model")
+        print("TODO: should you ditch old data after a training pass???")
+        print("TODO: save training pass results?")
+        config.paths.set_model_name("model_post.pth")
         game = Game(config)
         game.run()
     elif config.stage == ExperimentStage.POST_SG_TEST:
@@ -64,3 +65,5 @@ def main():
 if __name__ == "__main__":
     seed_everything(310)
     main()
+
+    print("Exiting experiment main thread.")

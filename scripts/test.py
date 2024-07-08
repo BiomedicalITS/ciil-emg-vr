@@ -1,3 +1,4 @@
+from multiprocessing import Process
 from re import T
 import time
 import os
@@ -117,16 +118,21 @@ def test_read_emg_csv():
     SENSOR = EmgSensorType.BioArmband
     sensor = EmgSensor(SENSOR, window_inc_ms=25)
 
-    paths = NfcPaths(f"data/vr_{sensor.get_name()}")
-    paths.set_trial_number(paths.trial_number - 1)
+    paths = NfcPaths(f"data/0/{sensor.get_name()}")
+    # paths.set_trial_number(paths.trial_number - 1)
+    paths.set_trial_number(0)
     paths.gestures = "data/gestures/"
 
-    timestamp = 1720013018.6548119
     t0 = time.time()
-    data = np.loadtxt(paths.live_data + "EMG.csv", delimiter=",", skiprows=1545021)
-    masked = data[data[:, 0] == timestamp, 1:]
+    data = np.loadtxt(paths.live_data + "EMG.csv", delimiter=",").reshape(-1, 9)
     print(f"{time.time()-t0:.3f} s to load and match")
-    print(masked.shape)
+
+    dt = np.diff(data[:, 0])
+
+    print(f"Loaded {len(dt)}, which is {len(dt) / sensor.fs:.3f} s of data")
+    print(
+        f"mean {np.mean(dt)*1000:.3f} std {np.std(dt)*1000:.3f}, fs {1/np.mean(dt):.3f} Hz"
+    )
 
 
 def test_online_rw():
@@ -281,12 +287,35 @@ def test_np():
     print(mixed_label)
 
 
+def worker(lis):
+    lis[0] = 0
+
+
+def test_process():
+    my_list = [1, 2, 3]
+
+    Process(target=worker, args=(my_list,)).start()
+    time.sleep(1)
+    print(my_list)
+
+
+def test_pid():
+    from subprocess import check_output
+
+    def get_pid(name):
+        return check_output(["pidof", name])
+
+    get_pid("python")
+
+
 if __name__ == "__main__":
+    # test_pid()
+    # test_process()
     # test_np_shared()
-    test_np()
+    # test_np()
     # test_dict_iter()
     # test_dict_iter()
-    # test_read_emg_csv()
+    test_read_emg_csv()
     # test_online_rw()
     # test_write()
     # test_oclassi()

@@ -1,5 +1,6 @@
 from multiprocessing import Process
-from threading import Thread
+from threading import Lock, Thread
+import os
 
 import socket
 
@@ -11,6 +12,7 @@ from nfc_emg import models
 from config import Config
 import memory_manager
 import adapt_manager
+from super_classi import run_classifier
 
 
 class Game:
@@ -30,9 +32,8 @@ class Game:
             file_path=self.config.paths.live_data,
         )
 
-        # TODO read data from UDP or from file ?
-
         classi = EMGClassifier()
+        classi.classifier = config.model.to("cuda").eval()
         classi.add_majority_vote(self.config.sensor.maj_vote_n)
 
         self.oclassi = OnlineEMGClassifier(
@@ -43,36 +44,51 @@ class Game:
             self.config.features,
             port=self.classifier_port,
         )
+        self.model_lock = Lock()
+
+        # Delete old data if applicable
+        for f in os.listdir(config.paths.base + f"/{config.paths.trial_number}/"):
+            if not f.startswith("live_"):
+                continue
+            os.remove(f"{config.paths.base + f"/{config.paths.trial_number}/"}/{f}")
 
     def run(self):
         print("Waiting for Unity to send 'READY'...")
 
-        unity_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        unity_sock.bind(("localhost", self.unity_port))
-        while True:
-            unity_packet = unity_sock.recv(1024).decode()
-            if unity_packet == "READY":
-                # global_timer = time.perf_counter()
-                unity_sock.close()
-                break
+        # before running streamer, oclassi, memoryManager and adaptManager, consumes ~20% of CPU
 
-        Thread(target=lambda: self.oclassi.run(block=True)).start()
+        # unity_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # unity_sock.bind(("localhost", self.unity_port))
+        # while True:
+        #     unity_packet = unity_sock.recv(1024).decode()
+        #     if unity_packet == "READY":
+        #         # global_timer = time.perf_counter()
+        #         unity_sock.close()
+        #         break
 
-        # probably want to start it as thread? Or load model from disk every time?
-        Process(
+        print("Starting the Python-side of the game stage!")
+
+        self.config.sensor.start_streamer()
+
+        Thread(
+            target=run_classifier,
+            args=(self.oclassi, self.config.paths.live_data + "preds.csv", self.model_lock),
+        ).start()
+
+        Thread(
             target=memory_manager.worker,
-            daemon=True,
             args=(
                 self.config,
+                self.model_lock,
                 self.adap_manager_port,
                 self.unity_port,
                 self.mem_manager_port,
             ),
         ).start()
 
-        # Not launched in new process to be able to update the oclassi directly
         adapt_manager.worker(
             self.config,
+            self.model_lock,
             self.mem_manager_port,
             self.adap_manager_port,
             self.oclassi,
@@ -85,6 +101,7 @@ class Game:
         # because we are running daemon processes they die as main process dies
 
     def clean_up(self):
-        models.save_nn(self.config.paths.model, self.oclassi.classifier)
+        self.config.model = self.oclassi.classifier.classifier
+        models.save_nn(self.config.model, self.config.paths.model)
         self.odh.stop_listening()
         self.oclassi.stop_running()

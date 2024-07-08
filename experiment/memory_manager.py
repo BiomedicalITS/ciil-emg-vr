@@ -1,21 +1,27 @@
-import copy
+from copy import deepcopy
 import socket
 import select
 import numpy as np
 import time
 import traceback
 import logging
+import os
+import sys
+
+# from multiprocessing import Process, shared_memory
+# from multiprocessing import Lock
+
 import threading
 from threading import Lock
 
 from libemg.feature_extractor import FeatureExtractor
 from libemg.utils import get_windows
 
+from config import Config
 from nfc_emg.models import EmgCNN
 from nfc_emg.schemas import POSE_TO_NAME
 from nfc_emg.utils import reverse_dict, map_cid_to_name
 
-from config import Config
 from memory import Memory
 
 
@@ -31,12 +37,20 @@ def csv_reader(file_path: str, array: np.ndarray, lock: Lock):
     Said numpy array is lock-protected.
     """
     array_len, array_width = array.shape
+
+    # Wait for CSV file to be created
+    parent_dir = "/".join(file_path.split("/")[:-1])
+    while "live_EMG.csv" not in os.listdir(parent_dir):
+        time.sleep(0.1)
+    print("csv_reader: Starting read loop")
     with open(file_path, "r") as c:
         while True:
             lines = c.readlines()
             if len(lines) == 0:
                 time.sleep(0.01)
                 continue
+
+            # print(len(lines))
 
             new_array = np.fromstring(
                 "".join(lines).replace("\n", ","), sep=","
@@ -50,7 +64,13 @@ def csv_reader(file_path: str, array: np.ndarray, lock: Lock):
             lock.release()
 
 
-def worker(config: Config, in_port: int, unity_in_port: int, out_port: int):
+def worker(
+    config: Config,
+    model_lock: Lock,
+    in_port: int,
+    unity_in_port: int,
+    out_port: int,
+):
     """
     The MemoryManager worker is a UDP server responsible for receiving context from Unity and receiving state from the AdaptationManager.
 
@@ -62,41 +82,43 @@ def worker(config: Config, in_port: int, unity_in_port: int, out_port: int):
 
     If a "Q" is received from Unity, the worker will shut down.
     """
-    save_dir = config.paths.model.replace("model.pth", "")
+    save_dir = config.paths.base + f"/{config.paths.trial_number}/"
+    memory_dir = save_dir + "memory/"
 
-    logging.basicConfig(
-        filename=save_dir + "memorymanager.log",
-        filemode="w",
-        encoding="utf-8",
-        level=logging.INFO,
+    logger = logging.getLogger("memory_manager")
+    fh = logging.FileHandler(
+        save_dir + "memory_manager.log", mode="w", encoding="utf-8"
     )
+    fh.setLevel(logging.INFO)
+    fs = logging.StreamHandler()
+    fs.setLevel(logging.INFO)
+    logger.addHandler(fh)
+    logger.addHandler(fs)
 
-    # this is where we receive commands from the adaptation manager
-    adaptation_manager_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    adaptation_manager_sock.bind(("localhost", in_port))
+    # receive messages from the adaptation manager
+    in_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    in_sock.bind(("localhost", in_port))
 
-    # this is where we receive context from unity
-    unity_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    unity_sock.bind(("localhost", unity_in_port))
+    # receive context from unity
+    unity_in_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    unity_in_sock.bind(("localhost", unity_in_port))
 
     memory = Memory()
-    fe = FeatureExtractor()
 
-    name_to_cid = reverse_dict(map_cid_to_name(config.paths.train))
+    name_to_cid = reverse_dict(map_cid_to_name(save_dir + "/train/"))
     unity_to_cid_map = {k: name_to_cid[v] for k, v in POSE_TO_NAME.items() if v != -1}
 
     """
     Shared between worker and csv reader thread. CSV reader reads data from file and writes it to this array.
     CSV reader also takes care of rolling the data, meaning the newest data is always at the end of the array.
     """
-    live_data = np.zeros((3 * config.sensor.fs, np.prod(config.input_shape) + 1))
+    live_data = np.zeros((3 * config.sensor.fs, np.prod(config.sensor.emg_shape) + 1))
     live_data_lock = Lock()
 
     threading.Thread(
         target=csv_reader,
         args=(
-            config.paths.live_data + "EMG.csv",
-            config.input_shape,
+            save_dir + "/live_EMG.csv",
             live_data,
             live_data_lock,
         ),
@@ -105,60 +127,71 @@ def worker(config: Config, in_port: int, unity_in_port: int, out_port: int):
 
     start_time = time.perf_counter()
 
+    model_lock.acquire()
+    model = deepcopy(config.model).to("cuda").eval()
+    model_lock.release()
+
     num_written = 0
     total_samples_unfound = 0
-    waiting_flag = 0
+    is_adapt_mngr_waiting = False
     done = False
     while not done:
         try:
-            ready_to_read, _, _ = select.select(
-                [adaptation_manager_sock, unity_sock], [], [], 0
-            )
+            # TODO make sure we don't run the loop if the Unity context timestamp has not changed
+            # TODO probably want to batch a bunch of context
+            ready_to_read, _, _ = select.select([in_sock, unity_in_sock], [], [], 0)
+
+            if len(ready_to_read) == 0:
+                time.sleep(0.01)
+                continue
+
             for sock in ready_to_read:
                 sock: socket.socket
-                received_data, _ = sock.recvfrom(1024)
-                udp_packet = received_data.decode("utf-8")
-
-                if sock is unity_sock:
+                udp_packet = sock.recv(1024).decode("utf-8")
+                if sock == unity_in_sock:
                     if udp_packet == "Q":
                         # Unity sends "Q" when it shuts down / is done
                         done = True
                         del_t = time.perf_counter() - start_time
-                        logging.info(f"MEMORYMANAGER: GOT DONE FLAG AT {del_t:.2f}s")
+                        logger.info(f"MEMORYMANAGER: GOT DONE FLAG AT {del_t:.2f} s")
+                        return
+                    elif not (udp_packet.startswith("P") or udp_packet.startswith("N")):
+                        # ensure context packet
                         continue
+
+                    logger.info(f"MEMORYMANAGER: GOT PACKET: {udp_packet}")
 
                     # New context received from Unity, fetch latest data
                     live_data_lock.acquire()
                     adap_data = live_data.copy()
                     live_data_lock.release()
 
-                    # Get a copy of the model every time, since it's being adapted
-                    # TODO does this work?
-                    model = copy.deepcopy(config.model).to("cpu").eval()
-
                     # Decode data into timestamps and features arrays
-                    # TODO maybe rework if not performant enough
-                    # TODO adap_timestamps is not the same size as adap_windows
+                    # TODO must manually filter fetched data
                     adap_timestamps = adap_data[:, 0]
-                    adap_windows = get_windows(
-                        adap_data[:, 1:],
-                        config.sensor.window_size,
-                        config.sensor.window_increment,
-                    )
-                    adap_features = fe.extract_features(
-                        config.features, adap_windows, array=True
-                    )
+                    if 0.0 in adap_timestamps:
+                        logger.info("MemoryManager waiting for more CSV data...")
+                        continue
+
+                    # logger.info(
+                    #     f"Average time between timestamps: {np.mean(np.diff(adap_timestamps))*1000:.3f} ms"
+                    # )
+
                     result = decode_unity(
                         udp_packet,
                         adap_timestamps,
-                        adap_features,
+                        adap_data[:, 1:],
+                        config.features,
+                        config.sensor.window_size,
+                        config.sensor.window_increment,
                         model,
                         unity_to_cid_map,
-                        "mixed",
+                        config.negative_method,
                     )
 
                     if result is None:
                         total_samples_unfound += 1
+                        logger.warning("No valid window found.")
                         continue
 
                     (
@@ -169,7 +202,15 @@ def worker(config: Config, in_port: int, unity_in_port: int, out_port: int):
                         timestamp,
                     ) = result
 
-                    if (len(adap_data)) != (len(adap_labels)):
+                    print(
+                        adap_data.shape,
+                        adap_labels,
+                        adap_possibilities,
+                        adap_type,
+                        timestamp,
+                    )
+
+                    if len(adap_data) != len(adap_labels):
                         continue
 
                     memory.add_memories(
@@ -179,35 +220,50 @@ def worker(config: Config, in_port: int, unity_in_port: int, out_port: int):
                         adap_type,
                         timestamp,
                     )
+                    logger.info(f"MemoryManager: memory length {len(memory)}")
 
-                elif sock is adaptation_manager_sock or waiting_flag:
-                    # waiting flag is set when AdaptationManager is done with an adaptation pass
-                    if udp_packet != "WAITING" and not waiting_flag:
+                if sock == in_sock or is_adapt_mngr_waiting:
+                    if udp_packet == "WAITING":
+                        # Training pass done so update model
+                        model_lock.acquire()
+                        model = deepcopy(config.model).to("cuda").eval()
+                        model_lock.release()
+                        is_adapt_mngr_waiting = True
+                    elif udp_packet == "ERROR":
+                        return
+
+                    if not is_adapt_mngr_waiting:
                         continue
-                    waiting_flag = 1
+
                     if len(memory) == 0:
                         # don't write empty memory
                         continue
+
                     t1 = time.perf_counter()
-                    memory.write(save_dir, num_written)
+                    memory.write(memory_dir, num_written)
                     del_t = time.perf_counter() - t1
-                    logging.info(
+
+                    logger.info(
                         f"MEMORYMANAGER: WROTE FILE: {num_written},\t lines:{len(memory)},\t unfound: {total_samples_unfound},\t WRITE TIME: {del_t:.2f}s"
                     )
                     num_written += 1
                     memory = Memory()
-                    adaptation_manager_sock.sendto(
-                        "WROTE".encode("utf-8"), ("localhost", out_port)
-                    )
-                    waiting_flag = 0
+                    in_sock.sendto("WROTE".encode("utf-8"), ("localhost", out_port))
+                    is_adapt_mngr_waiting = False
+        except KeyboardInterrupt:
+            in_sock.sendto("STOP".encode("utf-8"), ("localhost", out_port))
+            return
         except Exception:
-            logging.error("MEMORYMANAGER: " + traceback.format_exc())
+            logger.error("MEMORYMANAGER: " + traceback.format_exc())
 
 
 def decode_unity(
     packet: str,
     timestamps: np.ndarray,
-    feature_data: np.ndarray,
+    data: np.ndarray,
+    features: list,
+    window_size: int,
+    window_increment: int,
     model: EmgCNN,
     unity_to_cid_map: dict,
     negative_method: str,
@@ -219,45 +275,58 @@ def decode_unity(
     Params:
         - timestamps with shape (n,)
         - feature_data: data shape (n, c) where c is the emg shape
+
+    Returns None if no valid window is found.
+
+    Returns:
+        - features: np.ndarray with shape (1, L) where L is the total number of features
+        - adaptation_label: np.ndarray with shape (1, n_classes), eg [1/3, 0, 0, 1/3, 1/3, ...]
+        - adaptation_direction: np.ndarray with shape (n_possibilities,), eg [0, 3, 4]
+        - adaptation_outcome: np.ndarray either ["P"] or ["N"]
+        - timestamp: [time.time()] of the window
     """
     message_parts = packet.split(" ")
+    print(message_parts)
 
     outcome = message_parts[0]
     timestamp = float(message_parts[1])
     possibilities = [unity_to_cid_map[p] for p in message_parts[2:]]
 
-    # find the features: data - timestamps, <- features ->
-    # TODO Load data here.... maybe pass in a file handle?
-    feature_data_index = np.argwhere(timestamps == timestamp)
-    if len(feature_data_index) == 0:
+    diff = np.abs(timestamps - timestamp)
+    # receive classifier timestamp + timestamped data.
+    # find the closest timestamp to the classifier timestamp and use it as "newest" data for window
+    feature_data_index = np.argmin(diff)
+    print(
+        f"Unity decode: idx {feature_data_index}, dt {diff[feature_data_index]*1000:.3f} ms"
+    )
+
+    start = feature_data_index + 1 - window_size
+
+    if start < 0:
+        # TODO what if start is < 0?
         return None
 
-    # get the model prediction
-    features = feature_data[feature_data_index]
-    prediction = model.predict(features)
+    data = data[start : start + window_size]
+    windows = get_windows(data, window_size, window_increment)
+    features = FeatureExtractor().extract_features(features, windows, array=True)
 
-    # Create the adaptation label
-    adaptation_label = np.zeros(model.classifier.out_features)
+    prediction = model.predict(features)
+    adaptation_label = np.zeros((len(prediction), model.classifier.out_features))
     if outcome == "P":
         # within-context, use the prediction as-is
-        try:
-            adaptation_label[int(prediction)] = 1
-        except Exception:
-            return None
+        adaptation_label[:, int(prediction.item(0))] = 1
     elif outcome == "N":
         if negative_method == "mixed":
-            mixed_label = np.zeros(model.classifier.out_features)
-            mixed_label[possibilities] = 1 / len(possibilities)
+            adaptation_label[:, possibilities] = 1 / len(possibilities)
 
-    # TODO save the model's prediction too?
-    timestamp = [timestamp]
-    adaptation_outcome = np.array(outcome)
-    adaptation_direction = np.array(possibilities)
+    if len(possibilities) < 4:
+        # pad with -1 to len 4
+        possibilities += [-1] * (4 - len(possibilities))
 
     return (
         features,
         adaptation_label,
-        adaptation_direction,
-        adaptation_outcome,
-        timestamp,
+        np.array([possibilities]),
+        [outcome],
+        [timestamp],
     )

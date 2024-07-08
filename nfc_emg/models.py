@@ -1,7 +1,10 @@
 import numpy as np
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.data import DataLoader, TensorDataset
+
 import lightning as L
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 from typing import Iterable
@@ -70,28 +73,36 @@ class EmgCNN(L.LightningModule):
 
     def convert_input(self, x):
         """
-        Convert arbitrary input to a Torch tensor
+        Pre-process the input by scaling it, reshaping and converting it to a Torch tensor
         """
         x = self.scaler.transform(x)
+        x = x.reshape(-1, self.num_channels, *self.emg_shape)
+
         if not isinstance(x, torch.Tensor):
             x = torch.from_numpy(x)
         return x.float().to(self.device)
 
     # ----- Lightning -----
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, batch_idx, logging=True):
         x, y_true = batch
         y = self(x)
         loss = F.cross_entropy(y, y_true)
+
+        if len(y_true.shape) == 2:
+            # class probabilities
+            y_true = torch.argmax(y_true, dim=1)
 
         acc = accuracy_score(
             y_true.cpu().detach().numpy(),
             np.argmax(y.cpu().detach().numpy(), axis=1),
             normalize=True,
         )
-        self.log("train_loss", loss)
-        self.log("train_acc", acc)
-        return loss
+        if logging:
+            self.log("train_loss", loss)
+            self.log("train_acc", acc)
+
+        return {"loss": loss, "acc": acc}
 
     def validation_step(self, batch, batch_idx):
         # training_step defines the train loop. It is independent of forward
@@ -126,12 +137,12 @@ class EmgCNN(L.LightningModule):
 
     # ----- LibEMG -----
 
-    def predict_proba(self, x):
+    def predict_proba(self, x) -> np.ndarray:
         x = self.convert_input(x)
         with torch.no_grad():
             return F.softmax(self(x), dim=1).cpu().detach().numpy()
 
-    def predict(self, x):
+    def predict(self, x) -> np.ndarray:
         return np.argmax(self.predict_proba(x), axis=1)
 
     def fit(self, data: np.ndarray, labels: np.ndarray):
@@ -142,16 +153,23 @@ class EmgCNN(L.LightningModule):
         """
         self.train()
 
-        data = self.scaler.transform(data)
-        loader = datasets.get_dataloader(data.astype(np.float32), labels, 64, True)
-
-        trainer = L.Trainer(
-            max_epochs=10,
-            callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
+        data = self.convert_input(data)
+        labels = torch.from_numpy(labels).to(self.device)
+        dataloader = DataLoader(
+            TensorDataset(data, labels), batch_size=32, shuffle=True
         )
-        trainer.fit(self, loader)
 
+        optim = self.configure_optimizers()
+        rets = []
+        for i, batch in enumerate(dataloader):
+            if len(batch[0]) < 2:
+                continue
+            ret = self.training_step(batch, i, False)
+            optim.step()
+            optim.zero_grad()
+            rets.append(ret)
         self.eval()
+        return rets
 
 
 class EmgMLP(L.LightningModule):
