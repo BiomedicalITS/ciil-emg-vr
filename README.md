@@ -2,6 +2,14 @@
 
 This project investigates the implementation of a self-supervised EMG gesture recognition system with the help of contextual information.
 
+## Set up
+
+Clone this repository, then:
+
+- `python3 -m venv .venv`
+- `source .venv/bin/activate`
+- `python3 -m pip install -e ./`
+
 ## Using nfc-emg
 
 Leveraging LibEMG, we reuse the paradigm of a hardware-agnostic _OnlineDataHandler_ reading in live data from a UDP _streamer_.
@@ -36,23 +44,6 @@ In VR, virtual objects can be freely placed in a simulated environment, eliminat
 
 ## Resources
 
+- [VR project](https://github.com/ThomasLabbe01/VrGameRFID)
 - [LibEMG doc](https://libemg.github.io/libemg/#)
 - [LibEMG gesture library](https://github.com/libemg/LibEMGGestures)
-
-## Random notes
-
-from metadata.json
-0 = hand close
-1 = hand open
-2 = pinch
-3 = no motion
-4 = extension
-5 = flexion
-
-in globals
-1 = no motion
-2 = hand close
-3 = hand open
-4 = flexion
-5 = extension
-26 = pinch
