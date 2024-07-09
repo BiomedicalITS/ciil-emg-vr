@@ -14,7 +14,7 @@ def main():
         subject_id=0,
         sensor_type=EmgSensorType.BioArmband,
         adaptation=True,
-        stage=ExperimentStage.SG_TRAIN,
+        stage=ExperimentStage.GAME,
     )
 
     if config.stage == ExperimentStage.FAMILIARIZATION:
@@ -44,7 +44,7 @@ def main():
             config.paths.get_test(),
         )
     elif config.stage == ExperimentStage.GAME:
-        print("TODO: should you ditch old data after a training pass???")
+        print("TODO: make sure the current prediction/data matching strategy is sound")
         print("TODO: save training pass results?")
         print("TODO: save Unity logs to disk")
         config.paths.set_model("model_post")

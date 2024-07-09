@@ -25,7 +25,9 @@ class Config:
     ):
         self.stage = stage
         self.subject_id = subject_id
-        self.sensor = EmgSensor(sensor_type, majority_vote_ms=0)
+        self.sensor = EmgSensor(
+            sensor_type, window_size_ms=150, window_inc_ms=20, majority_vote_ms=0
+        )
 
         self.adaptation = adaptation
         self.negative_method = "mixed"

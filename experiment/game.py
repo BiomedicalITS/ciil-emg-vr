@@ -80,17 +80,18 @@ class Game:
                 self.paths.get_live() + "preds.csv",
                 self.model_lock,
             ),
+            daemon=True,
         ).start()
 
         Thread(
             target=memory_manager.worker,
             args=(
                 self.config,
-                self.model_lock,
                 self.adap_manager_port,
                 self.unity_port,
                 self.mem_manager_port,
             ),
+            daemon=True,
         ).start()
 
         adapt_manager.worker(
@@ -108,7 +109,5 @@ class Game:
         # because we are running daemon processes they die as main process dies
 
     def clean_up(self):
-        self.config.model = self.oclassi.classifier.classifier
         models.save_nn(self.config.model, self.paths.get_model())
         self.odh.stop_listening()
-        self.oclassi.stop_running()

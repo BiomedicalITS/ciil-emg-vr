@@ -28,9 +28,10 @@ def worker(
     model_path = save_dir + "/models/model_"
 
     logger = logging.getLogger("adapt_manager")
-    fh = logging.FileHandler(save_dir + "adapt_manager.log", mode="w", encoding="utf-8")
+    fh = logging.FileHandler(save_dir + "adapt_manager.log", mode="w")
     fh.setLevel(logging.INFO)
     logger.addHandler(fh)
+    logger.setLevel(logging.INFO)
 
     # receive messages from MemoryManager
     in_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -45,14 +46,17 @@ def worker(
     memory = Memory()
     memory_id = 0
 
-    # initial time
-    start_time = time.perf_counter()
-
     # variables to save
     adapt_round = 0
+
+    time.sleep(5)  # ensure that the memory manager is ready
+
+    print("AdaptManager is starting!")
+
     in_sock.sendto("WAITING".encode("utf-8"), ("localhost", out_port))
 
-    time.sleep(3)
+    # initial time
+    start_time = time.perf_counter()
     while time.perf_counter() - start_time < config.game_time:
         try:
             udp_pkt = in_sock.recv(1024).decode()
@@ -79,36 +83,40 @@ def worker(
                 time.sleep(3)
             else:
                 if config.adaptation:
-                    if config.relabel_method == "LabelSpreading":
-                        if time.perf_counter() - start_time > 120:
-                            t_ls = time.perf_counter()
-                            negative_memory_index = list(
-                                map(lambda x: x == "N", memory.experience_outcome)
-                            )
-                            labels = np.argmax(memory.experience_targets, axis=1)
-                            labels[negative_memory_index] = -1
-                            ls = LabelSpreading(kernel="knn", alpha=0.2, n_neighbors=50)
-                            ls.fit(memory.experience_data, labels)
-                            current_targets = ls.transduction_
-                            memory.experience_targets = np.eye(len(config.gesture_ids))[
-                                current_targets
-                            ]
-                            del_t_ls = time.perf_counter() - t_ls
-                            logging.info(
-                                f"ADAPTMANAGER: LS - round {adapt_round}; LS TIME: {del_t_ls:.2f}s"
-                            )
+                    # if config.relabel_method == "LabelSpreading":
+                    #     if time.perf_counter() - start_time > 120:
+                    #         t_ls = time.perf_counter()
+                    #         negative_memory_index = list(
+                    #             map(lambda x: x == "N", memory.experience_outcome)
+                    #         )
+                    #         labels = np.argmax(memory.experience_targets, axis=1)
+                    #         labels[negative_memory_index] = -1
+
+                    #         ls = LabelSpreading(kernel="knn", alpha=0.2, n_neighbors=50)
+                    #         ls.fit(memory.experience_data, labels)
+
+                    #         current_targets = ls.transduction_
+                    #         memory.experience_targets = np.eye(len(config.gesture_ids))[
+                    #             current_targets
+                    #         ]
+                    #         del_t_ls = time.perf_counter() - t_ls
+                    #         logging.info(
+                    #             f"ADAPTMANAGER: LS - round {adapt_round}; LS TIME: {del_t_ls:.2f}s"
+                    #         )
 
                     t1 = time.perf_counter()
-                    print("=" * 100)
-                    print(len(memory))
-                    a_model.fit(memory.experience_data, memory.experience_targets)
-                    print("=" * 100)
 
-                    new_model = copy.deepcopy(a_model)
+                    rets = a_model.fit(
+                        memory.experience_data, memory.experience_targets
+                    )
+                    print(f"Adaptation accuracy: {rets[-1]['acc']*100:.2f}%")
+                    new_model = copy.deepcopy(a_model).to("cuda").eval()
 
                     # after training, update the model
+                    # memory_manager uses config.model so update it too
                     model_lock.acquire()
                     oclassi.classifier.classifier = new_model
+                    config.model = new_model
                     model_lock.release()
 
                     del_t = time.perf_counter() - t1
@@ -123,17 +131,14 @@ def worker(
                     )
 
                     print(f"Adapted {adapt_round} times")
-                    adapt_round += 1
-                else:
-                    time.sleep(5)
-                    adapt_round += 1
+
+                adapt_round += 1
 
             # tell MemoryManager we are ready for more adaptation data
             in_sock.sendto("WAITING".encode(), ("localhost", out_port))
             logger.info("ADAPTMANAGER: WAITING FOR DATA")
-            time.sleep(0.5)
+            time.sleep(5)
         except Exception:
-            in_sock.sendto("ERROR".encode(), ("localhost", out_port))
             logging.error("ADAPTMANAGER: " + traceback.format_exc())
             return
     else:

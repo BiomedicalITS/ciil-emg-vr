@@ -13,12 +13,13 @@ def run_classifier(oclassi: OnlineEMGClassifier, save_path: str, lock: Lock):
     """
     Adapted copy-paste of OnlineEMGClassifier._run_helper with some optimizations and saves predictions to a file
     """
+    print("SuperClassifier is started!")
     fe = FeatureExtractor()
     oclassi.raw_data.reset_emg()
     with open(save_path, "w", newline="") as csvfile:
         writer = csv.writer(csvfile, delimiter=",")
         while True:
-            if not len(oclassi.raw_data.get_emg()) >= oclassi.window_size:
+            if len(oclassi.raw_data.get_emg()) < oclassi.window_size:
                 continue
 
             time_stamp = time.time()
@@ -74,16 +75,13 @@ def run_classifier(oclassi: OnlineEMGClassifier, save_path: str, lock: Lock):
                 )
                 prediction = values[np.argmax(counts)]
 
-            if oclassi.output_format == "predictions":
-                message = str(str(prediction) + " " + str(time_stamp))
-            elif oclassi.output_format == "probabilities":
-                message = (
-                    " ".join([f"{i:.2f}" for i in probabilities[0]])
-                    + " "
-                    + str(time_stamp)
-                )
+            message = f"{prediction} {time_stamp}"
+
             oclassi.sock.sendto(bytes(message, "utf-8"), (oclassi.ip, oclassi.port))
             writer.writerow([time_stamp, prediction])
+            csvfile.flush()
 
             if oclassi.std_out:
                 print(message)
+
+            # print(f"Classification time: {1000*(time.time() - time_stamp):.3f} ms")

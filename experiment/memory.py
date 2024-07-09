@@ -6,22 +6,22 @@ import random
 
 class Memory:
     def __init__(self, max_len=None):
-        self.experience_targets = []
+        self.experience_targets = None
         """
         Current targets for the model
         """
 
-        self.experience_data = np.zeros
+        self.experience_data = None
         """
         Inputs for the saved experience
         """
 
-        self.experience_context = np.zeros((0, 4), dtype=np.int8)
+        self.experience_context = None
         """
-        Correct options (given the context).
+        Correct options (given the context)
         """
 
-        self.experience_outcome = []
+        self.experience_outcome = None
         """
         Classifier vs context Outcome (P or N)
         """
@@ -38,7 +38,7 @@ class Memory:
 
         self.memories_stored = 0
         """
-        How many memories do we have?
+        Number of adaptation samples stored
         """
 
     def __len__(self):

@@ -323,6 +323,12 @@ def test_np():
     print(a.shape)
     print(np.argwhere(a == 3))
 
+    pygui = np.diff(np.loadtxt("data/latency_win_gui.txt", delimiter=" "))
+    print(np.mean(pygui), np.std(pygui))
+
+    svgui = np.diff(np.loadtxt("data/sifi_view_desktop.txt", delimiter=" "))
+    print(np.mean(svgui), np.std(svgui))
+
     from sklearn.preprocessing import OneHotEncoder
 
     ohe = OneHotEncoder()
@@ -360,7 +366,7 @@ def test_pid():
 
 
 if __name__ == "__main__":
-    visualize_data()
+    # visualize_data()
     # test_pid()
     # test_process()
     # test_np_shared()
