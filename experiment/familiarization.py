@@ -1,5 +1,3 @@
-import numpy as np
-
 from nfc_emg.utils import get_online_data_handler
 
 from config import Config

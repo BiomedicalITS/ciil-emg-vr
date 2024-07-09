@@ -15,46 +15,48 @@ import configs as g
 
 def __main():
     SAMPLE_DATA = False
-    SAMPLE_TEST_DATA = False
     FINETUNE = False
 
     # SAMPLE_DATA = True
-    # SAMPLE_TEST_DATA = True
     # FINETUNE = True
 
-    sensor = EmgSensor(g.SENSOR, majority_vote_ms=0)
+    sensor = EmgSensor(
+        g.SENSOR, window_size_ms=150, window_inc_ms=20, majority_vote_ms=0
+    )
 
-    paths = NfcPaths(f"data/{sensor.get_name()}")
-    if not SAMPLE_DATA or not SAMPLE_TEST_DATA:
-        paths.set_trial_number(paths.get_next_trial() - 1)
-        # paths.set_trial_number(-1)
+    paths = NfcPaths(f"data/{sensor.get_name()}", -1)
     paths.gestures = "data/gestures/"
 
-    print(f"Using data from trial {paths.trial_number}")
+    # if not SAMPLE_DATA or FINETUNE:
+    #     paths.set_trial(paths.get_next_trial() - 1)
+
+    train_dir = paths.get_train()
+    test_dir = paths.get_test()
+    fine_dir = paths.get_fine()
 
     # model = models.load_mlp(paths.model)
-    # model = EmgMLP(len(g.FEATURES) * np.prod(sensor.emg_shape), len(g.FUNCTIONAL_SET))
-    model = EmgCNN(len(g.FEATURES), np.prod(sensor.emg_shape), len(g.FUNCTIONAL_SET))
+    model = EmgMLP(len(g.FEATURES) * np.prod(sensor.emg_shape), len(g.FUNCTIONAL_SET))
+    # model = EmgCNN(len(g.FEATURES), sensor.emg_shape, len(g.FUNCTIONAL_SET))
 
     model = main_train_nn(
         model=model,
         sensor=sensor,
-        sample_data=SAMPLE_DATA,
+        sample_data=SAMPLE_DATA or FINETUNE,
         features=g.FEATURES,
         gestures_list=g.FUNCTIONAL_SET,
         gestures_dir=paths.gestures,
-        data_dir=paths.fine if FINETUNE else paths.train,
-        model_out_path=paths.model,
+        data_dir=fine_dir if FINETUNE else train_dir,
+        model_out_path=paths.get_model(),
         num_reps=1 if FINETUNE else 5,
-        rep_time=3
+        rep_time=3,
     )
 
     test_results = main_test_nn(
         model=model,
         sensor=sensor,
         features=g.FEATURES,
-        data_dir=paths.test,
-        sample_data=SAMPLE_TEST_DATA,
+        data_dir=test_dir,
+        sample_data=SAMPLE_DATA or FINETUNE,
         gestures_list=g.FUNCTIONAL_SET,
         gestures_dir=paths.gestures,
     )
@@ -63,7 +65,7 @@ def __main():
         test_results["CONF_MAT"], axis=1, keepdims=True
     )
     test_gesture_names = utils.get_name_from_gid(
-        paths.gestures, paths.train, g.FUNCTIONAL_SET
+        paths.gestures, train_dir, g.FUNCTIONAL_SET
     )
     ConfusionMatrixDisplay(conf_mat, display_labels=test_gesture_names).plot()
     plt.show()
@@ -75,6 +77,7 @@ def __main():
     # classi.classifier = model.eval()
     # oclassi = OnlineEMGClassifier(classi, sensor.window_size, sensor.window_increment, odh, g.FEATURES, std_out=True)
     # oclassi.run()
+
 
 if __name__ == "__main__":
     __main()

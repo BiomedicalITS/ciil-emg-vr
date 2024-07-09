@@ -14,7 +14,7 @@ def main():
         subject_id=0,
         sensor_type=EmgSensorType.BioArmband,
         adaptation=True,
-        stage=ExperimentStage.GAME,
+        stage=ExperimentStage.SG_TRAIN,
     )
 
     if config.stage == ExperimentStage.FAMILIARIZATION:
@@ -28,8 +28,8 @@ def main():
             config.features,
             config.gesture_ids,
             config.paths.gestures,
-            config.paths.train,
-            config.paths.model,
+            config.paths.get_train(),
+            config.paths.get_model(),
             config.reps,
             config.rep_time,
         )
@@ -41,13 +41,13 @@ def main():
             config.features,
             config.gesture_ids,
             config.paths.gestures,
-            config.paths.test,
+            config.paths.get_test(),
         )
     elif config.stage == ExperimentStage.GAME:
-        print("TODO: NfcPaths create new folders for memory and models")
         print("TODO: should you ditch old data after a training pass???")
         print("TODO: save training pass results?")
-        config.paths.set_model_name("model_post.pth")
+        print("TODO: save Unity logs to disk")
+        config.paths.set_model("model_post")
         game = Game(config)
         game.run()
     elif config.stage == ExperimentStage.POST_SG_TEST:
@@ -58,12 +58,11 @@ def main():
             config.features,
             config.gesture_ids,
             config.paths.gestures,
-            config.paths.fine,
+            config.paths.get_fine(),
         )
 
 
 if __name__ == "__main__":
     seed_everything(310)
     main()
-
     print("Exiting experiment main thread.")

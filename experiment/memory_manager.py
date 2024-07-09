@@ -82,18 +82,13 @@ def worker(
 
     If a "Q" is received from Unity, the worker will shut down.
     """
-    save_dir = config.paths.base + f"/{config.paths.trial_number}/"
+    save_dir = config.paths.get_experiment_dir()
     memory_dir = save_dir + "memory/"
 
     logger = logging.getLogger("memory_manager")
-    fh = logging.FileHandler(
-        save_dir + "memory_manager.log", mode="w", encoding="utf-8"
-    )
+    fh = logging.FileHandler(save_dir + "mem_manager.log", mode="w", encoding="utf-8")
     fh.setLevel(logging.INFO)
-    fs = logging.StreamHandler()
-    fs.setLevel(logging.INFO)
     logger.addHandler(fh)
-    logger.addHandler(fs)
 
     # receive messages from the adaptation manager
     in_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -202,14 +197,6 @@ def worker(
                         timestamp,
                     ) = result
 
-                    print(
-                        adap_data.shape,
-                        adap_labels,
-                        adap_possibilities,
-                        adap_type,
-                        timestamp,
-                    )
-
                     if len(adap_data) != len(adap_labels):
                         continue
 
@@ -269,7 +256,6 @@ def decode_unity(
     negative_method: str,
 ):
     """
-
     Decode a context packet from Unity. Only 1 valid window should be found.
 
     Params:
@@ -279,10 +265,10 @@ def decode_unity(
     Returns None if no valid window is found.
 
     Returns:
-        - features: np.ndarray with shape (1, L) where L is the total number of features
-        - adaptation_label: np.ndarray with shape (1, n_classes), eg [1/3, 0, 0, 1/3, 1/3, ...]
-        - adaptation_direction: np.ndarray with shape (n_possibilities,), eg [0, 3, 4]
-        - adaptation_outcome: np.ndarray either ["P"] or ["N"]
+        - features: np.ndarray with shape (1, L) where L is the # of features
+        - label: np.ndarray with shape (1, n_classes), one-hot encoded label for adaptation
+        - possibilities: np.ndarray with shape (1, 4), eg [0, 3, 4, -1]. Padded to 4 elements with -1
+        - outcome: ["P"] if model prediction was within-context, else ["N"]
         - timestamp: [time.time()] of the window
     """
     message_parts = packet.split(" ")

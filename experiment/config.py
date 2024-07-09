@@ -41,9 +41,7 @@ class Config:
         self.get_game_parameters()
 
     def get_path_parameters(self):
-        self.paths = NfcPaths(f"data/{self.subject_id}/{self.sensor.get_name()}/")
-        if self.stage > ExperimentStage.SG_TRAIN:
-            self.paths.set_trial_number(self.paths.trial_number - 1)
+        self.paths = NfcPaths(f"data/{self.subject_id}/", self.sensor.get_name())
         self.paths.gestures = "data/gestures/"
 
     def get_feature_parameters(self):
@@ -75,11 +73,11 @@ class Config:
             )
             return
         elif self.stage >= ExperimentStage.POST_SG_TEST:
-            self.paths.set_model_name("model_post")
+            self.paths.set_model("model_post")
 
         # Load model from disk
         self.model = models.load_conv(
-            self.paths.model, self.num_channels, self.input_shape
+            self.paths.get_model(), self.num_channels, self.input_shape
         )
 
     def get_game_parameters(self):
