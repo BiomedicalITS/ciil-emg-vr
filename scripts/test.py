@@ -16,6 +16,48 @@ from nfc_emg.paths import NfcPaths
 import configs as g
 
 
+def visualize_data():
+    import matplotlib.pyplot as plt
+    from libemg.utils import make_regex
+    from libemg.data_handler import OfflineDataHandler
+
+    classes = [0, 1, 2, 3, 4]
+    repetitions = [0, 1, 2, 3, 4]
+
+    classes_values = [str(c) for c in classes]
+    classes_regex = make_regex(
+        left_bound="C_", right_bound="_R_", values=classes_values
+    )
+
+    reps_values = [str(rep) for rep in repetitions]
+    reps_regex = make_regex(
+        left_bound="_R_", right_bound="_emg.csv", values=reps_values
+    )
+
+    dic = {
+        "reps": reps_values,
+        "reps_regex": reps_regex,
+        "classes": classes_values,
+        "classes_regex": classes_regex,
+    }
+
+    odh = OfflineDataHandler()
+    odh.get_data(folder_location="data/Test1/", filename_dic=dic, delimiter=",")
+    odh = odh.isolate_data("reps", [0])
+    odh = odh.isolate_data("classes", [0])
+
+    # fi = utils.get_filter(1000, (20, 450), 60)
+    # fi.filter(odh)
+
+    data, meta = odh.parse_windows(1, 1)
+
+    data = data.squeeze()
+    print(data.shape)
+
+    plt.plot(data)
+    plt.show()
+
+
 def test_oclassi():
     SENSOR = EmgSensorType.BioArmband
 
@@ -318,6 +360,7 @@ def test_pid():
 
 
 if __name__ == "__main__":
+    visualize_data()
     # test_pid()
     # test_process()
     # test_np_shared()
