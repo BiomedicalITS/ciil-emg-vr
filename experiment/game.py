@@ -23,34 +23,38 @@ class Game:
         self.unity_port = 12350
 
         self.config = config
+        self.paths = config.paths
+        self.sensor = config.sensor
+        self.features = config.features
 
         self.odh = get_online_data_handler(
             config.sensor,
             imu=False,
             timestamps=True,
             file=True,
-            file_path=self.config.paths.live_data,
+            file_path=self.paths.get_live(),
         )
 
         classi = EMGClassifier()
         classi.classifier = config.model.to("cuda").eval()
-        classi.add_majority_vote(self.config.sensor.maj_vote_n)
+        classi.add_majority_vote(self.sensor.maj_vote_n)
+        # classi.add_rejection()
 
         self.oclassi = OnlineEMGClassifier(
             classi,
-            self.config.sensor.window_size,
-            self.config.sensor.window_increment,
+            self.sensor.window_size,
+            self.sensor.window_increment,
             self.odh,
-            self.config.features,
+            self.features,
             port=self.classifier_port,
         )
         self.model_lock = Lock()
 
         # Delete old data if applicable
-        for f in os.listdir(config.paths.base + f"/{config.paths.trial_number}/"):
+        for f in os.listdir(self.paths.get_experiment_dir()):
             if not f.startswith("live_"):
                 continue
-            os.remove(f"{config.paths.base + f"/{config.paths.trial_number}/"}/{f}")
+            os.remove(f"{self.paths.get_experiment_dir()}{f}")
 
     def run(self):
         print("Waiting for Unity to send 'READY'...")
@@ -66,24 +70,29 @@ class Game:
         #         unity_sock.close()
         #         break
 
-        print("Starting the Python-side of the game stage!")
+        print("Starting the Python Game Stage!")
 
-        self.config.sensor.start_streamer()
+        self.sensor.start_streamer()
 
         Thread(
             target=run_classifier,
-            args=(self.oclassi, self.config.paths.live_data + "preds.csv", self.model_lock),
+            args=(
+                self.oclassi,
+                self.paths.get_live() + "preds.csv",
+                self.model_lock,
+            ),
+            daemon=True,
         ).start()
 
         Thread(
             target=memory_manager.worker,
             args=(
                 self.config,
-                self.model_lock,
                 self.adap_manager_port,
                 self.unity_port,
                 self.mem_manager_port,
             ),
+            daemon=True,
         ).start()
 
         adapt_manager.worker(
@@ -94,14 +103,5 @@ class Game:
             self.oclassi,
         )
 
-        # while time.perf_counter() - global_timer < self.config.game_time:
-        #     time.sleep(1)
-
-        self.clean_up()
         # because we are running daemon processes they die as main process dies
-
-    def clean_up(self):
-        self.config.model = self.oclassi.classifier.classifier
-        models.save_nn(self.config.model, self.config.paths.model)
-        self.odh.stop_listening()
-        self.oclassi.stop_running()
+        models.save_nn(self.config.model, self.paths.get_model())

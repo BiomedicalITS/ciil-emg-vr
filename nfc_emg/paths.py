@@ -1,59 +1,100 @@
-from dataclasses import dataclass
 import os
 
 
-@dataclass
 class NfcPaths:
+    """
+    Opinionated helper to set up paths for an EMG experiment.
+
+    General structure goes:
+
+    'base/trial_name/{subfolders go here}'
+
+    Base usually is something like `data/` or `data/subject_id/`
+    """
+
     base: str
-    trial_number: int
+    trial: int
+
     gestures: str = "gestures/"
-    model: str = "model.pth"
+
+    # Folders
     train: str = "train/"
-    fine: str = "fine/"
     test: str = "test/"
-    results: str = "results/"
-    imu_calib: str = "imu_calib_data.npz"
+    fine: str = "fine/"
+    models: str = "models/"
+    memory: str = "memories/"
+
+    # Files
+    model: str = "model.pth"
     live_data: str = "live_"
+    results: str = "results.csv"
 
-    def __init__(self, base="data/", trial_number: int | None = None):
+    def __init__(self, base="data", trial: str | None = None):
+        """
+        Initialize paths with a base directory and trial number.
+        """
+        self.set_base(base)
+        if trial is None:
+            trial = self.get_next_trial()
+        self.set_trial(trial)
+
+    def set_base(self, base: str):
         self.base = base
-        if trial_number is None:
-            trial_number = self.get_next_trial()
-        self.set_trial_number(trial_number)
-        self.set_base_dir(base)
+        _set_dir(base)
 
-    def set_base_dir(self, base_dir: str):
-        if not base_dir.endswith("/"):
-            base_dir += "/"
+        return self
 
-        if not os.path.exists(self.base):
-            os.makedirs(self.base, exist_ok=True)
+    def set_trial(self, trial):
+        if not isinstance(trial, str):
+            trial = str(trial)
+        self.trial = trial
+        _set_dir(self.get_experiment_dir())
+        return self
 
-        self.base = base_dir
-        self.set_trial_number(self.trial_number)
+    def get_experiment_dir(self):
+        return f"{self.base}/{self.trial}/"
 
-    def set_trial_number(self, number):
-        self.trial_number = number
-        if not os.path.exists(self.base + str(self.trial_number)):
-            os.makedirs(self.base, exist_ok=True)
-
-        self.gestures = f"{self.base}/{self.trial_number}/gestures/"
-        self.train = f"{self.base}/{self.trial_number}/train/"
-        self.fine = f"{self.base}/{self.trial_number}/fine/"
-        self.test = f"{self.base}/{self.trial_number}/test/"
-        self.live_data = f"{self.base}/{self.trial_number}/live_"
-        self.results = f"{self.base}/{self.trial_number}/results.json"
-        self.imu_calib = f"{self.base}/{self.trial_number}/imu_calib_data.npz"
-        self.model = self.set_model_name(self.model.split("/")[-1])
-
-    def set_model_name(self, name: str):
+    def set_model(self, name: str):
         """
         Set model name. Does not require .pth extension.
         """
-        if name.endswith(".pth"):
-            name = name[:-4]
-        self.model = f"{self.base}/{self.trial_number}/{name}.pth"
-        return self.model
+        if not name.endswith(".pth"):
+            name += ".pth"
+        self.model = name
+        return self
+
+    def get_train(self):
+        return f"{self.get_experiment_dir()}{self.train}"
+
+    def get_test(self):
+        return f"{self.get_experiment_dir()}{self.test}"
+
+    def get_fine(self):
+        return f"{self.get_experiment_dir()}{self.train}"
+
+    def get_models(self):
+        models = f"{self.get_experiment_dir()}{self.models}"
+        _set_dir(models)
+        return models
+
+    def get_gestures(self):
+        return f"{self.get_experiment_dir()}{self.gestures}"
+
+    def get_memory(self):
+        mem = f"{self.get_experiment_dir()}{self.memory}"
+        _set_dir(mem)
+        return mem
+
+    # ------- Files -------
+
+    def get_model(self):
+        return f"{self.get_experiment_dir()}{self.model}"
+
+    def get_results(self):
+        return f"{self.get_experiment_dir()}{self.results}"
+
+    def get_live(self):
+        return f"{self.get_experiment_dir()}{self.live_data}"
 
     def get_next_trial(self):
         try:
@@ -64,3 +105,13 @@ class NfcPaths:
             return max([int(t) for t in trials]) + 1
         except FileNotFoundError:
             return 0
+
+
+def _set_dir(dir: str):
+    if not dir.endswith("/"):
+        dir += "/"
+
+    if not os.path.exists(dir):
+        os.makedirs(dir, exist_ok=True)
+
+    return dir

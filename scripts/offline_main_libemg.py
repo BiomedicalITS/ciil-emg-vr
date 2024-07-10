@@ -24,23 +24,24 @@ def __main():
     GESTURE_IDS = g.FUNCTIONAL_SET
     SENSOR = EmgSensorType.BioArmband
 
-    sensor = EmgSensor(SENSOR, window_size_ms=200, window_inc_ms=20)
-    paths = NfcPaths(f"data/{sensor.get_name()}")
-
-    if SAMPLE_DATA:
-        utils.do_sgt(sensor, GESTURE_IDS, paths.gestures, paths.train, 5, 3)
-    elif paths.trial_number == paths.get_next_trial():
-        paths.set_trial_number(paths.trial_number - 1)
-
-    paths.set_trial_number(-1)
+    sensor = EmgSensor(SENSOR, window_size_ms=150, window_inc_ms=20, majority_vote_ms=0)
+    paths = NfcPaths(f"data/{sensor.get_name()}", -1)
     paths.gestures = "data/gestures/"
 
-    gestures_cids = utils.get_cid_from_gid(paths.gestures, paths.train, GESTURE_IDS)
-    idle_id = utils.map_gid_to_cid(paths.gestures, paths.train)[1]
-    reps = utils.get_reps(paths.train)
+    train_dir = paths.get_train()
+    test_dir = paths.get_test()
 
-    train_odh = datasets.get_offline_datahandler(paths.train, gestures_cids, reps)
-    test_odh = datasets.get_offline_datahandler(paths.test, gestures_cids, reps)
+    if SAMPLE_DATA:
+        utils.do_sgt(sensor, GESTURE_IDS, paths.gestures, train_dir, 5, 3)
+    elif paths.trial == paths.get_next_trial():
+        paths.set_trial(paths.trial - 1)
+
+    gestures_cids = utils.get_cid_from_gid(paths.gestures, train_dir, GESTURE_IDS)
+    idle_id = utils.map_gid_to_cid(paths.gestures, train_dir)[1]
+    reps = utils.get_reps(train_dir)
+
+    train_odh = datasets.get_offline_datahandler(train_dir, gestures_cids, reps)
+    test_odh = datasets.get_offline_datahandler(test_dir, gestures_cids, reps)
 
     # if sensor.sensor_type == EmgSensorType.BioArmband:
     #     fi = utils.get_filter(sensor.fs, sensor.bandpass_freqs, sensor.notch_freq)
@@ -61,11 +62,15 @@ def __main():
         print("=========================================")
 
         data_set = {
-            "training_features": FeatureExtractor().extract_feature_group(feature_set, train_windows),
-            "training_labels": train_labels
+            "training_features": FeatureExtractor().extract_feature_group(
+                feature_set, train_windows
+            ),
+            "training_labels": train_labels,
         }
 
-        test_features = FeatureExtractor().extract_feature_group(feature_set, test_windows)
+        test_features = FeatureExtractor().extract_feature_group(
+            feature_set, test_windows
+        )
 
         for k, v in data_set["training_features"].items():
             scaler = preprocessing.StandardScaler()
@@ -73,10 +78,8 @@ def __main():
             data_set["training_features"][k] = scaler.transform(v)
             test_features[k] = scaler.transform(test_features[k])
 
-
         model = EMGClassifier()
         model.fit(classifier, data_set.copy())
-        print(model.classifier.get_params())
         # model.add_majority_vote(sensor.maj_vote_n)
         preds, probs = model.run(test_features)
 
@@ -94,10 +97,12 @@ def __main():
             results["CONF_MAT"], axis=1, keepdims=True
         )
         test_gesture_names = utils.get_name_from_gid(
-            paths.gestures, paths.train, GESTURE_IDS
+            paths.gestures, train_dir, GESTURE_IDS
         )
         ConfusionMatrixDisplay(conf_mat, display_labels=test_gesture_names).plot()
-        plt.title(f"{sensor.get_name()} with {classifier} with {feature_set}")
+        plt.title(
+            f"{sensor.get_name()} using an {classifier} with {feature_set} features"
+        )
 
     plt.show()
 

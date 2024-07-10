@@ -1,6 +1,9 @@
 from lightning.pytorch import seed_everything
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import ConfusionMatrixDisplay
 
-from nfc_emg import models
+from nfc_emg import models, utils
 from nfc_emg.sensors import EmgSensorType
 
 from familiarization import Familiarization
@@ -14,43 +17,64 @@ def main():
         subject_id=0,
         sensor_type=EmgSensorType.BioArmband,
         adaptation=True,
-        stage=ExperimentStage.GAME,
+        # adaptation=True,
+        # stage=ExperimentStage.FAMILIARIZATION,
+        # stage=ExperimentStage.VISUALIZE_CLASSIFIER,
+        # stage=ExperimentStage.SG_TRAIN,
+        stage=ExperimentStage.SG_TEST,
+        # stage=ExperimentStage.GAME,
+        # stage=ExperimentStage.SG_POST_TEST,
     )
+    SAMPLE_DATA = True
 
     if config.stage == ExperimentStage.FAMILIARIZATION:
-        fam = Familiarization(config)
+        fam = Familiarization(config, False)
+        fam.run()
+    elif config.stage == ExperimentStage.VISUALIZE_CLASSIFIER:
+        fam = Familiarization(config, True)
         fam.run()
     elif config.stage == ExperimentStage.SG_TRAIN:
         models.main_train_nn(
             config.model,
             config.sensor,
-            True,
+            SAMPLE_DATA,
             config.features,
             config.gesture_ids,
             config.paths.gestures,
-            config.paths.train,
-            config.paths.model,
+            config.paths.get_train(),
+            config.paths.get_model(),
             config.reps,
             config.rep_time,
         )
     elif config.stage == ExperimentStage.SG_TEST:
-        models.main_test_nn(
+        results = models.main_test_nn(
             config.model,
             config.sensor,
-            True,
+            SAMPLE_DATA,
             config.features,
             config.gesture_ids,
             config.paths.gestures,
-            config.paths.test,
+            config.paths.get_test(),
         )
+        conf_mat = results["CONF_MAT"] / np.sum(
+            results["CONF_MAT"], axis=1, keepdims=True
+        )
+        test_gesture_names = utils.get_name_from_gid(
+            config.paths.gestures, config.paths.get_train(), config.gesture_ids
+        )
+
+        utils.save_eval_results(
+            results, config.paths.get_results().replace(".csv", "_pre.json")
+        )
+        ConfusionMatrixDisplay(conf_mat, display_labels=test_gesture_names).plot()
+        plt.show()
     elif config.stage == ExperimentStage.GAME:
-        print("TODO: NfcPaths create new folders for memory and models")
-        print("TODO: should you ditch old data after a training pass???")
-        print("TODO: save training pass results?")
-        config.paths.set_model_name("model_post.pth")
+        print("TODO: save Unity logs to disk")
+        print("TODO: model overfits massively on examples")
+        config.paths.set_model("model_post")
         game = Game(config)
         game.run()
-    elif config.stage == ExperimentStage.POST_SG_TEST:
+    elif config.stage == ExperimentStage.SG_POST_TEST:
         models.main_test_nn(
             config.model,
             config.sensor,
@@ -58,12 +82,11 @@ def main():
             config.features,
             config.gesture_ids,
             config.paths.gestures,
-            config.paths.fine,
+            config.paths.get_fine(),
         )
 
 
 if __name__ == "__main__":
     seed_everything(310)
     main()
-
     print("Exiting experiment main thread.")

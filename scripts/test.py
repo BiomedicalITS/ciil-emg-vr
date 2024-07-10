@@ -65,7 +65,7 @@ def test_oclassi():
     sensor.start_streamer()
 
     paths = NfcPaths(f"data/{sensor.get_name()}")
-    paths.set_trial_number(paths.trial_number - 1)
+    paths.set_trial_number(paths.trial - 1)
     paths.gestures = "data/gestures/"
     paths.set_model_name("model")
 
@@ -102,7 +102,7 @@ def test_oclassi():
 def test_rand():
     sensor = EmgSensor(EmgSensorType.BioArmband)
     paths = NfcPaths(f"data/{sensor.get_name()}")
-    paths.set_trial_number(paths.trial_number - 1)
+    paths.set_trial_number(paths.trial - 1)
 
     classes = utils.map_gid_to_cid(paths.gestures, paths.train)
 
@@ -134,7 +134,7 @@ def test_write():
     sensor.start_streamer()
 
     paths = NfcPaths(f"data/vr_{sensor.get_name()}")
-    paths.set_trial_number(paths.trial_number - 1)
+    paths.set_trial_number(paths.trial - 1)
     paths.gestures = "data/gestures/"
 
     time.sleep(10)
@@ -185,13 +185,13 @@ def test_online_rw():
     sensor.start_streamer()
 
     paths = NfcPaths(f"data/vr_{sensor.get_name()}")
-    paths.set_trial_number(paths.trial_number - 1)
+    paths.set_trial_number(paths.trial - 1)
     paths.gestures = "data/gestures/"
 
-    for csv in os.listdir(f"{paths.base}/{paths.trial_number}"):
+    for csv in os.listdir(f"{paths.base}/{paths.trial}"):
         if not csv.startswith("live_"):
             continue
-        os.remove(f"{paths.base}/{paths.trial_number}/{csv}")
+        os.remove(f"{paths.base}/{paths.trial}/{csv}")
 
     odh = utils.get_online_data_handler(
         sensor.fs,
@@ -204,7 +204,7 @@ def test_online_rw():
         file_path=paths.live_data,
     )
 
-    while "live_EMG.csv" not in os.listdir(f"{paths.base}/{paths.trial_number}"):
+    while "live_EMG.csv" not in os.listdir(f"{paths.base}/{paths.trial}"):
         continue
 
     t0 = time.time()
@@ -318,10 +318,25 @@ def test_np_shared():
 
 
 def test_np():
-    a = [1, 2, 3, 4, 3]
+    a = [0, 1, 2, 3, 4, 3]
     a = np.array(a)
     print(a.shape)
     print(np.argwhere(a == 3))
+
+    pygui = np.diff(np.loadtxt("data/latency_win_gui.txt", delimiter=" "))
+    print(np.mean(pygui), np.std(pygui))
+
+    svgui = np.diff(np.loadtxt("data/sifi_view_desktop.txt", delimiter=" "))
+    print(np.mean(svgui), np.std(svgui))
+
+    from sklearn.preprocessing import OneHotEncoder
+
+    ohe = OneHotEncoder()
+    i = ohe.fit_transform(a.reshape(-1, 1))
+    print(i)
+
+    i = np.eye(5)[a]
+    print(i)
 
     possibilities = [2, 3, 7, 0]
     mixed_label = np.zeros(8)
@@ -351,11 +366,11 @@ def test_pid():
 
 
 if __name__ == "__main__":
-    visualize_data()
+    # visualize_data()
     # test_pid()
     # test_process()
     # test_np_shared()
-    # test_np()
+    test_np()
     # test_dict_iter()
     # test_dict_iter()
     # test_read_emg_csv()

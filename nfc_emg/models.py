@@ -1,5 +1,11 @@
 import numpy as np
 
+from sklearn.metrics import accuracy_score
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.base import BaseEstimator
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -8,11 +14,6 @@ from torch.utils.data import DataLoader, TensorDataset
 import lightning as L
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 from typing import Iterable
-
-from sklearn.metrics import accuracy_score
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.base import BaseEstimator
-from sklearn.preprocessing import StandardScaler
 
 from libemg.offline_metrics import OfflineMetrics
 from libemg.emg_classifier import EMGClassifier
@@ -93,43 +94,55 @@ class EmgCNN(L.LightningModule):
             # class probabilities
             y_true = torch.argmax(y_true, dim=1)
 
-        acc = accuracy_score(
-            y_true.cpu().detach().numpy(),
-            np.argmax(y.cpu().detach().numpy(), axis=1),
-            normalize=True,
-        )
+        y = np.argmax(y.cpu().detach().numpy(), axis=1)
+        y_true = y_true.cpu().detach().numpy()
+
+        acc = accuracy_score(y_true, y, normalize=True)
+
         if logging:
             self.log("train_loss", loss)
             self.log("train_acc", acc)
 
-        return {"loss": loss, "acc": acc}
+        return loss
 
     def validation_step(self, batch, batch_idx):
         # training_step defines the train loop. It is independent of forward
         x, y_true = batch
         y = self(x)
         loss = F.cross_entropy(y, y_true)
-        acc = accuracy_score(
-            y_true.cpu().detach().numpy(),
-            np.argmax(y.cpu().detach().numpy(), axis=1),
-            normalize=True,
-        )
-        self.log("val_loss", loss)
-        self.log("val_acc", acc)
-        return loss
 
-    def test_step(self, batch, batch_idx):
-        x, y_true = batch
-        y: torch.Tensor = self(x)
-        loss: float = F.cross_entropy(y, y_true)
+        if len(y_true.shape) == 2:
+            # class probabilities
+            y_true = torch.argmax(y_true, dim=1)
 
         y = np.argmax(y.cpu().detach().numpy(), axis=1)
         y_true = y_true.cpu().detach().numpy()
 
         acc = accuracy_score(y_true, y, normalize=True)
-        self.log("test_loss", loss)
-        self.log("test_acc", acc)
-        return {"loss": loss, "y_true": list(y_true), "y_pred": list(y)}
+
+        self.log("val_loss", loss)
+        self.log("val_acc", acc)
+        return loss
+
+    def test_step(self, batch, batch_idx, logging=True):
+        x, y_true = batch
+        y = self(x)
+        loss: float = F.cross_entropy(y, y_true)
+
+        if len(y_true.shape) == 2:
+            # class probabilities
+            y_true = torch.argmax(y_true, dim=1)
+
+        y = np.argmax(y.cpu().detach().numpy(), axis=1)
+        y_true = y_true.cpu().detach().numpy()
+
+        acc = accuracy_score(y_true, y, normalize=True)
+
+        if logging:
+            self.log("test_loss", loss)
+            self.log("test_acc", acc)
+
+        return {"loss": loss, "acc": acc}
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
@@ -151,25 +164,40 @@ class EmgCNN(L.LightningModule):
 
         This function takes care of data normalization.
         """
-        self.train()
-
-        data = self.convert_input(data)
-        labels = torch.from_numpy(labels).to(self.device)
-        dataloader = DataLoader(
-            TensorDataset(data, labels), batch_size=32, shuffle=True
+        train_data, val_data, train_labels, val_labels = train_test_split(
+            data, labels, test_size=0.2
         )
 
+        train_data = self.convert_input(train_data)
+        train_labels = torch.from_numpy(train_labels).to(self.device)
+        train_dl = DataLoader(TensorDataset(train_data, train_labels), batch_size=32)
+
+        val_data = self.convert_input(val_data)
+        val_labels = torch.from_numpy(val_labels).to(self.device)
+        val_dl = DataLoader(TensorDataset(val_data, val_labels), batch_size=100)
+
+        self.train()
         optim = self.configure_optimizers()
-        rets = []
-        for i, batch in enumerate(dataloader):
+        for i, batch in enumerate(train_dl):
             if len(batch[0]) < 2:
                 continue
-            ret = self.training_step(batch, i, False)
+            loss = self.training_step(batch, i, False)
+
+            loss.backward()
             optim.step()
             optim.zero_grad()
-            rets.append(ret)
+
         self.eval()
-        return rets
+        rets = {}
+        num_batches = 0
+        for i, batch in enumerate(val_dl):
+            ret = self.test_step(batch, i, False)
+            num_batches += 1
+            if rets == {}:
+                rets = ret
+            else:
+                rets = {k: v + ret[k] for k, v in rets.items()}
+        return {k: v / num_batches for k, v in rets.items()}
 
 
 class EmgMLP(L.LightningModule):
@@ -221,18 +249,23 @@ class EmgMLP(L.LightningModule):
 
     # ----- Lightning -----
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, batch_idx, logging=True):
         x, y_true = batch
         y = self(x)
         loss = F.cross_entropy(y, y_true)
 
-        acc = accuracy_score(
-            y_true.cpu().detach().numpy(),
-            np.argmax(y.cpu().detach().numpy(), axis=1),
-            normalize=True,
-        )
-        self.log("train_loss", loss)
-        self.log("train_acc", acc)
+        if len(y_true.shape) == 2:
+            # class probabilities
+            y_true = torch.argmax(y_true, dim=1)
+
+        y = np.argmax(y.cpu().detach().numpy(), axis=1)
+        y_true = y_true.cpu().detach().numpy()
+
+        acc = accuracy_score(y_true, y, normalize=True)
+
+        if logging:
+            self.log("train_loss", loss)
+            self.log("train_acc", acc)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -240,30 +273,38 @@ class EmgMLP(L.LightningModule):
         x, y_true = batch
         y = self(x)
         loss = F.cross_entropy(y, y_true)
-        acc = accuracy_score(
-            y_true.cpu().detach().numpy(),
-            np.argmax(y.cpu().detach().numpy(), axis=1),
-            normalize=True,
-        )
-        self.log("val_loss", loss)
-        self.log("val_acc", acc)
-        return loss
 
-    def test_step(self, batch, batch_idx):
-        # training_step defines the train loop. It is independent of forward
-        x, y_true = batch
-        y: torch.Tensor = self(x)
-        loss: float = F.cross_entropy(y, y_true)
+        if len(y_true.shape) == 2:
+            # class probabilities
+            y_true = torch.argmax(y_true, dim=1)
 
         y = np.argmax(y.cpu().detach().numpy(), axis=1)
         y_true = y_true.cpu().detach().numpy()
 
         acc = accuracy_score(y_true, y, normalize=True)
-        try:
+
+        self.log("val_loss", loss)
+        self.log("val_acc", acc)
+        return loss
+
+    def test_step(self, batch, batch_idx, logging=True):
+        # training_step defines the train loop. It is independent of forward
+        x, y_true = batch
+        y: torch.Tensor = self(x)
+        loss = F.cross_entropy(y, y_true)
+
+        if len(y_true.shape) == 2:
+            # class probabilities
+            y_true = torch.argmax(y_true, dim=1)
+
+        y = np.argmax(y.cpu().detach().numpy(), axis=1)
+        y_true = y_true.cpu().detach().numpy()
+
+        acc = accuracy_score(y_true, y, normalize=True)
+        if logging:
             self.log("test_loss", loss)
             self.log("test_acc", acc)
-        finally:
-            return {"loss": loss, "y_true": list(y_true), "y_pred": list(y)}
+        return {"loss": loss, "acc": acc}
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
@@ -280,18 +321,40 @@ class EmgMLP(L.LightningModule):
         return np.argmax(self.predict_proba(x), axis=1)
 
     def fit(self, data, labels):
-        self.train()
-
-        data = self.scaler.transform(data)
-        loader = datasets.get_dataloader(data.astype(np.float32), labels, 64, True)
-
-        trainer = L.Trainer(
-            max_epochs=10,
-            callbacks=[EarlyStopping(monitor="train_loss", min_delta=0.0005)],
+        train_data, val_data, train_labels, val_labels = train_test_split(
+            data, labels, test_size=0.2
         )
-        trainer.fit(self, loader)
+
+        train_data = self.convert_input(train_data)
+        train_labels = torch.from_numpy(train_labels).to(self.device)
+        train_dl = DataLoader(TensorDataset(train_data, train_labels), batch_size=32)
+
+        val_data = self.convert_input(val_data)
+        val_labels = torch.from_numpy(val_labels).to(self.device)
+        val_dl = DataLoader(TensorDataset(val_data, val_labels), batch_size=100)
+
+        optim = self.configure_optimizers()
+        self.train()
+        for i, batch in enumerate(train_dl):
+            if len(batch[0]) < 2:
+                continue
+            loss = self.training_step(batch, i, False)
+
+            loss.backward()
+            optim.step()
+            optim.zero_grad()
 
         self.eval()
+        rets = {}
+        num_batches = 0
+        for i, batch in enumerate(val_dl):
+            ret = self.test_step(batch, i, False)
+            num_batches += 1
+            if rets == {}:
+                rets = ret
+            else:
+                rets = {k: v + ret[k] for k, v in rets.items()}
+        return {k: v / num_batches for k, v in rets.items()}
 
 
 class EmgSCNN(L.LightningModule):
