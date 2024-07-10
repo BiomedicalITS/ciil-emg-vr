@@ -6,20 +6,16 @@ import traceback
 import logging
 import os
 
-# from multiprocessing import Process, shared_memory
-# from multiprocessing import Lock
-
 import threading
 from threading import Lock
 
 from libemg.feature_extractor import FeatureExtractor
-from libemg.utils import get_windows
-from sympy import Predicate
 
-from config import Config
 from nfc_emg.schemas import POSE_TO_NAME
 from nfc_emg.utils import reverse_dict, map_cid_to_name
+from nfc_emg import datasets, utils
 
+from config import Config
 from memory import Memory
 
 
@@ -48,7 +44,7 @@ def csv_reader(file_path: str, array: np.ndarray, lock: Lock):
         while True:
             lines = c.readlines()
             if len(lines) == 0:
-                time.sleep(0.01)
+                # time.sleep(0.01)
                 continue
 
             # print(f"csv_reader: Read {len(lines)} lines from {file_path}")
@@ -83,7 +79,8 @@ def worker(
     If a "Q" is received from Unity, the worker will shut down.
     """
     save_dir = config.paths.get_experiment_dir()
-    memory_dir = save_dir + "memory/"
+    memory_dir = config.paths.get_memory()
+    data_dir = config.paths.get_train()
 
     logger = logging.getLogger("memory_manager")
     fh = logging.FileHandler(save_dir + "mem_manager.log", mode="w")
@@ -102,35 +99,45 @@ def worker(
     unity_in_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     unity_in_sock.bind(("localhost", unity_in_port))
 
-    memory = Memory()
+    # Create some initial memory data
+    base_odh = datasets.get_offline_datahandler(
+        data_dir,
+        utils.get_cid_from_gid(config.paths.gestures, data_dir, config.gesture_ids),
+        utils.get_reps(data_dir),
+    )
+    base_win, base_labels = datasets.prepare_data(base_odh, config.sensor)
+    base_features = FeatureExtractor().extract_features(
+        config.features, base_win, array=True
+    )
+    memory = Memory().add_memories(
+        base_features,
+        np.eye(len(config.gesture_ids))[base_labels],
+        np.zeros((len(base_labels), 3)),
+        ["P"] * len(base_labels),
+        [0.0] * len(base_labels),
+    )
 
-    name_to_cid = reverse_dict(map_cid_to_name(save_dir + "/train/"))
+    # runtime constants
+    name_to_cid = reverse_dict(map_cid_to_name(config.paths.get_train()))
     unity_to_cid_map = {k: name_to_cid[v] for k, v in POSE_TO_NAME.items() if v != -1}
 
     """
     Shared between worker and csv reader thread. CSV reader reads data from file and writes it to this array.
     CSV reader also takes care of rolling the data, meaning the newest data is always at the end of the array.
     """
-    live_data = np.zeros((config.sensor.fs, np.prod(config.sensor.emg_shape) + 1))
+    live_data = np.zeros(
+        (
+            config.sensor.fs // config.sensor.window_increment,
+            np.prod(config.sensor.emg_shape) * config.sensor.window_size + 2,
+        )
+    )
     live_data_lock = Lock()
     threading.Thread(
         target=csv_reader,
         args=(
-            save_dir + "/live_EMG.csv",
+            config.paths.get_live() + "preds.csv",
             live_data,
             live_data_lock,
-        ),
-        daemon=True,
-    ).start()
-
-    live_preds = np.zeros((config.sensor.fs // config.sensor.window_increment, 2))
-    live_preds_lock = Lock()
-    threading.Thread(
-        target=csv_reader,
-        args=(
-            save_dir + "/live_preds.csv",
-            live_preds,
-            live_preds_lock,
         ),
         daemon=True,
     ).start()
@@ -169,19 +176,11 @@ def worker(
                     logger.info(f"MEMORYMANAGER: GOT PACKET: {udp_packet}")
 
                     live_data_lock.acquire()
-                    live_preds_lock.acquire()
                     adap_data = live_data.copy()
-                    adap_preds = live_preds.copy()
                     live_data_lock.release()
-                    live_preds_lock.release()
 
-                    # TODO must manually filter fetched data
-
-                    if 0.0 in adap_data[:, 0]:
+                    if 0 in adap_data[:, 0]:
                         logger.info("MemoryManager waiting for more CSV data...")
-                        continue
-                    elif 0.0 in adap_preds[:, 0]:
-                        logger.info("MemoryManager waiting for more predictions...")
                         continue
 
                     # logger.info(
@@ -191,10 +190,8 @@ def worker(
                     result = decode_unity(
                         udp_packet,
                         adap_data,
-                        adap_preds,
                         config.features,
                         config.sensor.window_size,
-                        config.sensor.window_increment,
                         len(config.gesture_ids),
                         unity_to_cid_map,
                         config.negative_method,
@@ -213,11 +210,11 @@ def worker(
                         timestamp,
                     ) = result
 
-                    print(udp_packet)
-                    print(adap_label)
-                    print(adap_possibilities)
-                    print(adap_type)
-                    print("=" * 50)
+                    # print(udp_packet)
+                    # print(adap_label)
+                    # print(adap_possibilities)
+                    # print(adap_type)
+                    # print("=" * 50)
 
                     if len(adap_data) != len(adap_label):
                         continue
@@ -265,10 +262,8 @@ def worker(
 def decode_unity(
     packet: str,
     data: np.ndarray,
-    preds: np.ndarray,
     features: list,
     window_size: int,
-    window_increment: int,
     num_classes: int,
     unity_to_cid_map: dict,
     negative_method: str,
@@ -295,34 +290,24 @@ def decode_unity(
     # print(message_parts)
 
     # Now extract corresponding prediction and data window...
-
-    # find closest prediction timestamp
-    diff = np.abs(preds[:, 0] - timestamp)
-    pred_index = np.argmin(diff)
-    print(f"Pred idx {pred_index}, dt {diff[pred_index]*1000:.3f} ms")
-    pred = int(preds[pred_index, 1])
-
-    # find the closest data timestamp TODO: <= to prediction???
-    diff = np.abs(data[:, 0] - timestamp)
-    data_index = np.argmin(diff)
-    print(f"Data idx {data_index}, dt {diff[data_index]*1000:.3f} ms")
-
-    start = data_index + 1 - window_size
-    if start < 0:
-        # this should be fine if the data is THAT old
+    pred_index = np.argwhere(data[:, 0] == timestamp)
+    if len(pred_index) == 0:
         return None
-
-    data = data[start : start + window_size, 1:]
-    windows = get_windows(data, window_size, window_increment)
+    pred = int(data[pred_index, 1])
+    windows = data[pred_index, 2:].reshape(1, -1, window_size)
     feats = FeatureExtractor().extract_features(features, windows, array=True)
 
     adaptation_label = np.zeros((1, num_classes))
     if outcome == "P":
+        if pred not in possibilities:
+            return None
         # within-context, use the prediction as-is
         adaptation_label[:, pred] = 1
     elif outcome == "N":
         if negative_method == "mixed":
             adaptation_label[:, possibilities] = 1 / len(possibilities)
+        else:
+            return None
         # dunno what happens if adaptation label left at zeros
 
     if len(possibilities) < 3:

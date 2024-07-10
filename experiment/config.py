@@ -1,4 +1,5 @@
 from enum import IntEnum
+import numpy as np
 
 import libemg
 
@@ -12,7 +13,8 @@ class ExperimentStage(IntEnum):
     SG_TRAIN = 1
     SG_TEST = 2
     GAME = 3
-    POST_SG_TEST = 4
+    SG_POST_TEST = 4
+    VISUALIZE_CLASSIFIER = 5
 
 
 class Config:
@@ -30,9 +32,12 @@ class Config:
         )
 
         self.adaptation = adaptation
-        self.negative_method = "mixed"
+
+        self.model_type = "CNN"  # Can be "CNN" or "MLP"
+        self.negative_method = "mixed"  # Can be "mixed" or "none"
         self.relabel_method = "LabelSpreading"
 
+        # 24 is Ring Flexion in LibEMG but image is tripod pinch
         self.gesture_ids = [1, 2, 3, 4, 5, 8, 26, 30]
         self.features = "TDPSD"  # Can be list of features OR feature group
 
@@ -68,19 +73,35 @@ class Config:
         self.input_shape = self.sensor.emg_shape
         self.num_channels = len(self.features)
 
-        if self.stage <= ExperimentStage.SG_TRAIN:
-            # Create a new model
-            self.model = models.EmgCNN(
-                len(self.features), self.sensor.emg_shape, len(self.gesture_ids)
-            )
+        if self.stage == ExperimentStage.SG_TRAIN:
+            # New model
+            if self.model_type == "CNN":
+                self.model = models.EmgCNN(
+                    len(self.features), self.sensor.emg_shape, len(self.gesture_ids)
+                )
+            elif self.model_type == "MLP":
+                self.model = models.EmgMLP(
+                    len(self.features) * np.prod(self.sensor.emg_shape),
+                    len(self.gesture_ids),
+                )
+            else:
+                raise ValueError("Invalid model type.")
             return
-        elif self.stage >= ExperimentStage.POST_SG_TEST:
+        elif self.stage == ExperimentStage.SG_POST_TEST:
             self.paths.set_model("model_post")
 
-        # Load model from disk
-        self.model = models.load_conv(
-            self.paths.get_model(), self.num_channels, self.input_shape
-        )
+        # Load if needed
+        try:
+            if self.model_type == "CNN":
+                self.model = models.load_conv(
+                    self.paths.get_model(), self.num_channels, self.input_shape
+                )
+            elif self.model_type == "MLP":
+                self.model = models.load_mlp(self.paths.get_model())
+            else:
+                raise ValueError("Invalid model type..")
+        except Exception:
+            self.model = None
 
     def get_game_parameters(self):
         self.game_time = 600

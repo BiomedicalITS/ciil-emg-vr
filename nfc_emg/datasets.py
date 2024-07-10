@@ -123,6 +123,10 @@ def get_dataloader(
     cutoff = len(labels) - len(labels) % batch_size
     data = data[:cutoff]
     labels = labels[:cutoff]
+
+    if len(labels) == 0 or len(data) == 0:
+        return None
+
     dataloader = DataLoader(
         TensorDataset(
             torch.from_numpy(data),

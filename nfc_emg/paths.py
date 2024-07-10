@@ -21,13 +21,13 @@ class NfcPaths:
     train: str = "train/"
     test: str = "test/"
     fine: str = "fine/"
-    results: str = "results/"
     models: str = "models/"
     memory: str = "memories/"
 
     # Files
     model: str = "model.pth"
     live_data: str = "live_"
+    results: str = "results.csv"
 
     def __init__(self, base="data", trial: str | None = None):
         """
@@ -72,20 +72,26 @@ class NfcPaths:
     def get_fine(self):
         return f"{self.get_experiment_dir()}{self.train}"
 
-    def get_model(self):
-        return f"{self.get_experiment_dir()}{self.model}"
-
     def get_models(self):
-        return f"{self.get_experiment_dir()}{self.models}"
-
-    def get_results(self):
-        return f"{self.get_experiment_dir()}{self.results}"
+        models = f"{self.get_experiment_dir()}{self.models}"
+        _set_dir(models)
+        return models
 
     def get_gestures(self):
         return f"{self.get_experiment_dir()}{self.gestures}"
 
     def get_memory(self):
-        return f"{self.get_experiment_dir()}{self.memory}"
+        mem = f"{self.get_experiment_dir()}{self.memory}"
+        _set_dir(mem)
+        return mem
+
+    # ------- Files -------
+
+    def get_model(self):
+        return f"{self.get_experiment_dir()}{self.model}"
+
+    def get_results(self):
+        return f"{self.get_experiment_dir()}{self.results}"
 
     def get_live(self):
         return f"{self.get_experiment_dir()}{self.live_data}"

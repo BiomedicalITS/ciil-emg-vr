@@ -38,6 +38,7 @@ class Game:
         classi = EMGClassifier()
         classi.classifier = config.model.to("cuda").eval()
         classi.add_majority_vote(self.sensor.maj_vote_n)
+        # classi.add_rejection()
 
         self.oclassi = OnlineEMGClassifier(
             classi,
@@ -102,12 +103,5 @@ class Game:
             self.oclassi,
         )
 
-        # while time.perf_counter() - global_timer < self.config.game_time:
-        #     time.sleep(1)
-
-        self.clean_up()
         # because we are running daemon processes they die as main process dies
-
-    def clean_up(self):
         models.save_nn(self.config.model, self.paths.get_model())
-        self.odh.stop_listening()

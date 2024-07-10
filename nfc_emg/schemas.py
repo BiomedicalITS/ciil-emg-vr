@@ -110,8 +110,7 @@ POSE_TO_NAME = {
     "H4": "Index_Pinch",
     "T1": "Index_Extension",
     "T2": "Wrist_Flexion",
-    "T3": "Hand_Open",
-    "T4": -1,
+    "T4": "Hand_Open",
 }
 
 if __name__ == "__main__":

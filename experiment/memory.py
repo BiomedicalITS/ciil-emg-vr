@@ -112,6 +112,7 @@ class Memory:
                 )
                 self.experience_timestamps.extend(experience_timestamps)
                 self.memories_stored += len(experience_targets)
+        return self
 
     def shuffle(self):
         if len(self):

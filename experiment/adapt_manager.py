@@ -4,8 +4,10 @@ import time
 import logging
 import traceback
 import copy
+import csv
 
 import numpy as np
+from sklearn.metrics import accuracy_score
 from sklearn.semi_supervised import LabelSpreading
 
 from libemg.emg_classifier import OnlineEMGClassifier
@@ -24,7 +26,7 @@ def worker(
     oclassi: OnlineEMGClassifier,
 ):
     save_dir = config.paths.get_experiment_dir()
-    memory_dir = save_dir + "memory/"
+    memory_dir = config.paths.get_memory()
     model_path = save_dir + "/models/model_"
 
     logger = logging.getLogger("adapt_manager")
@@ -32,10 +34,6 @@ def worker(
     fh.setLevel(logging.INFO)
     logger.addHandler(fh)
     logger.setLevel(logging.INFO)
-
-    # receive messages from MemoryManager
-    in_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    in_sock.bind(("localhost", in_port))
 
     # "adaptation model copy"
     model_lock.acquire()
@@ -49,14 +47,19 @@ def worker(
     # variables to save
     adapt_round = 0
 
-    time.sleep(5)  # ensure that the memory manager is ready
+    time.sleep(5)
 
     print("AdaptManager is starting!")
 
+    # receive messages from MemoryManager
+    in_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    in_sock.bind(("localhost", in_port))
     in_sock.sendto("WAITING".encode("utf-8"), ("localhost", out_port))
 
     # initial time
     start_time = time.perf_counter()
+    csv_file = open(config.paths.get_results(), "w", newline="")
+    csv_results = csv.writer(csv_file)
     while time.perf_counter() - start_time < config.game_time:
         try:
             udp_pkt = in_sock.recv(1024).decode()
@@ -78,42 +81,53 @@ def worker(
                 f"ADAPTMANAGER: ADDED MEMORY {memory_id}, CURRENT SIZE: {len(memory)}; LOAD TIME: {del_t:.2f}s"
             )
 
-            if len(memory) < 64:
+            if len(memory) < 150:
                 logger.info(f"MEMORY LEN {len(memory)} -- SKIPPED TRAINING")
-                time.sleep(3)
+                time.sleep(1)
             else:
                 if config.adaptation:
-                    # if config.relabel_method == "LabelSpreading":
-                    #     if time.perf_counter() - start_time > 120:
-                    #         t_ls = time.perf_counter()
-                    #         negative_memory_index = list(
-                    #             map(lambda x: x == "N", memory.experience_outcome)
-                    #         )
-                    #         labels = np.argmax(memory.experience_targets, axis=1)
-                    #         labels[negative_memory_index] = -1
+                    if config.relabel_method == "LabelSpreading":
+                        if time.perf_counter() - start_time > 120:
+                            t_ls = time.perf_counter()
+                            n_mem_idx = np.argwhere(memory.experience_outcome == "N")
+                            labels = np.argmax(memory.experience_targets, axis=1)
+                            labels[n_mem_idx] = -1
 
-                    #         ls = LabelSpreading(kernel="knn", alpha=0.2, n_neighbors=50)
-                    #         ls.fit(memory.experience_data, labels)
+                            ls = LabelSpreading(kernel="knn", alpha=0.2, n_neighbors=50)
+                            ls.fit(memory.experience_data, labels)
 
-                    #         current_targets = ls.transduction_
-                    #         memory.experience_targets = np.eye(len(config.gesture_ids))[
-                    #             current_targets
-                    #         ]
-                    #         del_t_ls = time.perf_counter() - t_ls
-                    #         logging.info(
-                    #             f"ADAPTMANAGER: LS - round {adapt_round}; LS TIME: {del_t_ls:.2f}s"
-                    #         )
+                            current_targets = ls.transduction_
+                            memory.experience_targets = np.eye(len(config.gesture_ids))[
+                                current_targets
+                            ]
+                            del_t_ls = time.perf_counter() - t_ls
+                            logging.info(
+                                f"ADAPTMANAGER: LS - round {adapt_round}; LS TIME: {del_t_ls:.2f}s"
+                            )
 
                     t1 = time.perf_counter()
+
+                    preds = a_model.predict(memory.experience_data)
+                    acc = accuracy_score(
+                        np.argmax(memory.experience_targets, axis=1), preds
+                    )
+                    print(
+                        f"Round {adapt_round+1} pre-acc: {acc*100:.2f}% ({len(memory)} samples)"
+                    )
 
                     rets = a_model.fit(
                         memory.experience_data, memory.experience_targets
                     )
-                    print(f"Adaptation accuracy: {rets[-1]['acc']*100:.2f}%")
+                    if rets:
+                        csv_results.writerow(
+                            [adapt_round, len(memory)] + list(rets.values())
+                        )
+                        csv_file.flush()
+                        print(f"Round {adapt_round+1} adap-acc: {rets['acc']*100:.2f}%")
+
                     new_model = copy.deepcopy(a_model).to("cuda").eval()
 
                     # after training, update the model
-                    # memory_manager uses config.model so update it too
                     model_lock.acquire()
                     oclassi.classifier.classifier = new_model
                     config.model = new_model
@@ -125,12 +139,12 @@ def worker(
                         f"ADAPTMANAGER: ADAPTED - round {adapt_round}; \tADAPT TIME: {del_t:.2f}s"
                     )
 
-                    save_nn(
-                        a_model,
-                        model_path + f"{adapt_round}.pth",
-                    )
+                    # save_nn(
+                    #     a_model,
+                    #     model_path + f"{adapt_round}.pth",
+                    # )
 
-                    print(f"Adapted {adapt_round} times")
+                    print(f"Adapted {adapt_round+1} times")
 
                 adapt_round += 1
 

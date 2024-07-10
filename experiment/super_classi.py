@@ -32,10 +32,10 @@ def run_classifier(oclassi: OnlineEMGClassifier, save_path: str, lock: Lock):
                 oclassi.window_size,
             )
 
-            # Dealing with the case for CNNs when no features are used
             features = fe.extract_features(
                 oclassi.features, window, oclassi.classifier.feature_params
             )
+
             # If extracted features has an error - give error message
             if fe.check_features(features) != 0:
                 oclassi.raw_data.adjust_increment(
@@ -75,11 +75,11 @@ def run_classifier(oclassi: OnlineEMGClassifier, save_path: str, lock: Lock):
                 )
                 prediction = values[np.argmax(counts)]
 
-            message = f"{prediction} {time_stamp}"
-
-            oclassi.sock.sendto(bytes(message, "utf-8"), (oclassi.ip, oclassi.port))
-            writer.writerow([time_stamp, prediction])
+            writer.writerow([time_stamp, prediction] + window.flatten().tolist())
             csvfile.flush()
+
+            message = f"{prediction} {time_stamp}"
+            oclassi.sock.sendto(message.encode(), (oclassi.ip, oclassi.port))
 
             if oclassi.std_out:
                 print(message)

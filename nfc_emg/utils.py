@@ -290,6 +290,9 @@ def screen_guided_training(
     if 18 in gestures_id_list:
         os.remove(gestures_img_dir + "Stop.png")
         shutil.copy("wrist_images/Stop.png", gestures_img_dir)
+    if 24 in gestures_id_list:
+        os.remove(gestures_img_dir + "Ring_Flexion.png")
+        shutil.copy("wrist_images/Ring_Flexion.png", gestures_img_dir)
 
     train_ui.launch_training(
         odh,
@@ -297,7 +300,7 @@ def screen_guided_training(
         rep_time,
         gestures_img_dir,
         output_folder=out_data_dir,
-        wait_btwn_prompts=True,
+        # wait_btwn_prompts=True,
         **kwargs,
     )
 
