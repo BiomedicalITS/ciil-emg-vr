@@ -107,9 +107,7 @@ class Memory:
                         )
                     )
                 )
-                self.experience_outcome = np.vstack(
-                    (self.experience_outcome, experience_outcome)
-                )
+                self.experience_outcome.extend(experience_outcome)
                 self.experience_timestamps.extend(experience_timestamps)
                 self.memories_stored += len(experience_targets)
         return self

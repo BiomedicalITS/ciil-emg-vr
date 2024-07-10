@@ -21,8 +21,8 @@ def main():
         # stage=ExperimentStage.FAMILIARIZATION,
         # stage=ExperimentStage.VISUALIZE_CLASSIFIER,
         # stage=ExperimentStage.SG_TRAIN,
-        stage=ExperimentStage.SG_TEST,
-        # stage=ExperimentStage.GAME,
+        # stage=ExperimentStage.SG_TEST,
+        stage=ExperimentStage.GAME,
         # stage=ExperimentStage.SG_POST_TEST,
     )
     SAMPLE_DATA = True
@@ -70,7 +70,6 @@ def main():
         plt.show()
     elif config.stage == ExperimentStage.GAME:
         print("TODO: save Unity logs to disk")
-        print("TODO: model overfits massively on examples")
         config.paths.set_model("model_post")
         game = Game(config)
         game.run()

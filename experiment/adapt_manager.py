@@ -47,8 +47,6 @@ def worker(
     # variables to save
     adapt_round = 0
 
-    time.sleep(5)
-
     print("AdaptManager is starting!")
 
     # receive messages from MemoryManager
@@ -60,6 +58,8 @@ def worker(
     start_time = time.perf_counter()
     csv_file = open(config.paths.get_results(), "w", newline="")
     csv_results = csv.writer(csv_file)
+
+    time.sleep(5)
     while time.perf_counter() - start_time < config.game_time:
         try:
             udp_pkt = in_sock.recv(1024).decode()
@@ -116,24 +116,28 @@ def worker(
                     )
 
                     rets = a_model.fit(
-                        memory.experience_data, memory.experience_targets
+                        memory.experience_data,
+                        memory.experience_targets.astype(np.float32),
                     )
+
+                    del_t = time.perf_counter() - t1
+
                     if rets:
                         csv_results.writerow(
                             [adapt_round, len(memory)] + list(rets.values())
                         )
                         csv_file.flush()
-                        print(f"Round {adapt_round+1} adap-acc: {rets['acc']*100:.2f}%")
+                        print(
+                            f"Round {adapt_round+1} adap-acc: {rets['acc']*100:.2f}%, adap time {del_t:.2f} s"
+                        )
 
-                    new_model = copy.deepcopy(a_model).to("cuda").eval()
+                    new_model = copy.deepcopy(a_model)
 
                     # after training, update the model
                     model_lock.acquire()
                     oclassi.classifier.classifier = new_model
                     config.model = new_model
                     model_lock.release()
-
-                    del_t = time.perf_counter() - t1
 
                     logger.info(
                         f"ADAPTMANAGER: ADAPTED - round {adapt_round}; \tADAPT TIME: {del_t:.2f}s"

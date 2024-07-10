@@ -20,7 +20,7 @@ class Familiarization:
         # )
         if self.classification:
             classi = EMGClassifier()
-            classi.classifier = self.config.model.to("cuda").eval()
+            classi.classifier = self.config.model
             classi.add_majority_vote(self.config.sensor.maj_vote_n)
             ws, wi = self.config.sensor.window_size, self.config.sensor.window_increment
 

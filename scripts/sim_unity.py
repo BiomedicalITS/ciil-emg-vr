@@ -7,7 +7,7 @@ if __name__ == "__main__":
     in_addr = ("127.0.0.1", 12347)
     out_addr = ("127.0.0.1", 12350)
 
-    possibilities = "H4 T2"  # set the simulated object possibilities here
+    possibilities = "H1 H2"  # set the simulated object possibilities here
 
     cid_to_name = utils.map_cid_to_ordered_name("data/gestures/", "data/0/bio/train/")
     print(cid_to_name)

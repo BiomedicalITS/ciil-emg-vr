@@ -1,5 +1,6 @@
 from enum import IntEnum
 import numpy as np
+import torch
 
 import libemg
 
@@ -73,6 +74,12 @@ class Config:
         self.input_shape = self.sensor.emg_shape
         self.num_channels = len(self.features)
 
+        self.accelerator = (
+            "cuda"
+            if torch.cuda.is_available()
+            else "mps" if torch.backends.mps.is_available() else "cpu"
+        )
+
         if self.stage == ExperimentStage.SG_TRAIN:
             # New model
             if self.model_type == "CNN":
@@ -91,17 +98,16 @@ class Config:
             self.paths.set_model("model_post")
 
         # Load if needed
-        try:
-            if self.model_type == "CNN":
-                self.model = models.load_conv(
-                    self.paths.get_model(), self.num_channels, self.input_shape
-                )
-            elif self.model_type == "MLP":
-                self.model = models.load_mlp(self.paths.get_model())
-            else:
-                raise ValueError("Invalid model type..")
-        except Exception:
-            self.model = None
+        if self.model_type == "CNN":
+            self.model = models.load_conv(
+                self.paths.get_model(), self.num_channels, self.input_shape
+            )
+        elif self.model_type == "MLP":
+            self.model = models.load_mlp(self.paths.get_model())
+        else:
+            raise ValueError("Invalid model type.")
+
+        self.model.to(self.accelerator)
 
     def get_game_parameters(self):
         self.game_time = 600
