@@ -6,9 +6,11 @@ This project investigates the implementation of a self-supervised EMG gesture re
 
 Clone this repository, then:
 
-- `python3 -m venv .venv`
-- `source .venv/bin/activate`
-- `python3 -m pip install -e ./`
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -e ./
+```
 
 ## Using nfc-emg
 
