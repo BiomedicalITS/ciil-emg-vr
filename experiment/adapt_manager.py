@@ -25,6 +25,16 @@ def worker(
     out_port: int,
     oclassi: OnlineEMGClassifier,
 ):
+    """
+    The AdaptManager is responsible for doing the live adaptation of the model.
+
+    To do so, it waits until MemoryManager writes a "Memory" to disk, then loads it in.
+
+    If the Memory is big enough, it does an adaptation pass on the model, and then saves the model.
+
+    Finally, the OnlineEMGClassifier and the config are updated with the new model.
+    """
+
     save_dir = config.paths.get_experiment_dir()
     memory_dir = config.paths.get_memory()
     model_path = save_dir + "/models/model_"
