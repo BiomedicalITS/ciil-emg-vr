@@ -1,7 +1,4 @@
 from lightning.pytorch import seed_everything
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.metrics import ConfusionMatrixDisplay
 
 from nfc_emg import models, utils
 from nfc_emg.sensors import EmgSensorType
@@ -14,17 +11,17 @@ from game import Game
 
 def main():
     config = Config(
-        subject_id=0,
+        subject_id="2024_07_11",
         sensor_type=EmgSensorType.BioArmband,
-        adaptation=True,
-        # adaptation=True,
         # stage=ExperimentStage.FAMILIARIZATION,
         # stage=ExperimentStage.VISUALIZE_CLASSIFIER,
         # stage=ExperimentStage.SG_TRAIN,
         # stage=ExperimentStage.SG_TEST,
         stage=ExperimentStage.GAME,
         # stage=ExperimentStage.SG_POST_TEST,
+        # adaptation=False,
     )
+    # SAMPLE_DATA = False
     SAMPLE_DATA = True
 
     if config.stage == ExperimentStage.FAMILIARIZATION:
@@ -47,6 +44,7 @@ def main():
             config.rep_time,
         )
     elif config.stage == ExperimentStage.SG_TEST:
+        config.paths.test = config.paths.test.replace("test", "pre_test")
         results = models.main_test_nn(
             config.model,
             config.sensor,
@@ -56,25 +54,16 @@ def main():
             config.paths.gestures,
             config.paths.get_test(),
         )
-        conf_mat = results["CONF_MAT"] / np.sum(
-            results["CONF_MAT"], axis=1, keepdims=True
-        )
-        test_gesture_names = utils.get_name_from_gid(
-            config.paths.gestures, config.paths.get_train(), config.gesture_ids
-        )
-
-        utils.save_eval_results(
-            results, config.paths.get_results().replace(".csv", "_pre.json")
-        )
-        ConfusionMatrixDisplay(conf_mat, display_labels=test_gesture_names).plot()
-        plt.show()
+        results_file = config.paths.get_results().replace(".csv", "_pre.json")
+        utils.save_eval_results(results, results_file)
+        utils.show_conf_mat(results, config.paths, config.gesture_ids)
     elif config.stage == ExperimentStage.GAME:
-        print("TODO: save Unity logs to disk")
         config.paths.set_model("model_post")
         game = Game(config)
         game.run()
     elif config.stage == ExperimentStage.SG_POST_TEST:
-        models.main_test_nn(
+        config.paths.test = config.paths.test.replace("test", "post_test")
+        results = models.main_test_nn(
             config.model,
             config.sensor,
             True,
@@ -83,6 +72,9 @@ def main():
             config.paths.gestures,
             config.paths.get_fine(),
         )
+        results_file = config.paths.get_results().replace(".csv", "_post.json")
+        utils.save_eval_results(results, results_file)
+        utils.show_conf_mat(results, config.paths, config.gesture_ids)
 
 
 if __name__ == "__main__":

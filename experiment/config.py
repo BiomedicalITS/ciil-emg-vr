@@ -1,3 +1,5 @@
+import os
+from shutil import copytree
 from enum import IntEnum
 import numpy as np
 import torch
@@ -23,8 +25,8 @@ class Config:
         self,
         subject_id: int,
         sensor_type: EmgSensorType,
-        adaptation: bool,
         stage: ExperimentStage,
+        adaptation: bool = True,
     ):
         self.stage = stage
         self.subject_id = subject_id
@@ -38,19 +40,30 @@ class Config:
         self.negative_method = "mixed"  # Can be "mixed" or "none"
         self.relabel_method = "LabelSpreading"
 
+        if self.relabel_method == "LabelSpreading":
+            os.environ["OMP_NUM_THREADS"] = "1"
+
         # 24 is Ring Flexion in LibEMG but image is tripod pinch
         self.gesture_ids = [1, 2, 3, 4, 5, 8, 26, 30]
         self.features = "TDPSD"  # Can be list of features OR feature group
 
-        self.get_feature_parameters()
         self.get_path_parameters()
+        self.get_feature_parameters()
         self.get_datacollection_parameters()
         self.get_classifier_parameters()
         self.get_game_parameters()
 
     def get_path_parameters(self):
-        self.paths = NfcPaths(f"data/{self.subject_id}/", self.sensor.get_name())
+        self.paths = NfcPaths(
+            f"data/{self.subject_id}/{self.sensor.get_name()}", "no_adap"
+        )
         self.paths.gestures = "data/gestures/"
+
+        if self.stage >= ExperimentStage.GAME and self.adaptation:
+            src = self.paths.get_experiment_dir()
+            self.paths.set_trial("adap")
+            if "adap" not in os.listdir(self.paths.base):
+                copytree(src, self.paths.get_experiment_dir(), dirs_exist_ok=True)
 
     def get_feature_parameters(self):
         fe = libemg.feature_extractor.FeatureExtractor()

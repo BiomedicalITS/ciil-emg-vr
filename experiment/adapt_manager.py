@@ -9,6 +9,7 @@ import csv
 import numpy as np
 from sklearn.metrics import accuracy_score
 from sklearn.semi_supervised import LabelSpreading
+from sklearn.utils import resample
 
 from libemg.emg_classifier import OnlineEMGClassifier
 
@@ -37,13 +38,16 @@ def worker(
 
     save_dir = config.paths.get_experiment_dir()
     memory_dir = config.paths.get_memory()
-    model_path = save_dir + "/models/model_"
+    model_path = config.paths.get_models()
 
     logger = logging.getLogger("adapt_manager")
+    logger.setLevel(logging.INFO)
     fh = logging.FileHandler(save_dir + "adapt_manager.log", mode="w")
     fh.setLevel(logging.INFO)
     logger.addHandler(fh)
-    logger.setLevel(logging.INFO)
+    fs = logging.StreamHandler()
+    fs.setLevel(logging.INFO)
+    logger.addHandler(fs)
 
     # "adaptation model copy"
     model_lock.acquire()
@@ -57,7 +61,7 @@ def worker(
     # variables to save
     adapt_round = 0
 
-    print("AdaptManager is starting!")
+    logger.info("AM: starting")
 
     # receive messages from MemoryManager
     in_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -88,58 +92,57 @@ def worker(
 
             # print(f"Loaded memory #{memory_id} in {del_t:.3f} s")
             logger.info(
-                f"ADAPTMANAGER: ADDED MEMORY {memory_id}, CURRENT SIZE: {len(memory)}; LOAD TIME: {del_t:.2f}s"
+                f"AM: loaded memory {memory_id}, size {len(memory)}, load time: {del_t:.2f}s"
             )
 
             if len(memory) < 150:
-                logger.info(f"MEMORY LEN {len(memory)} -- SKIPPED TRAINING")
+                logger.info(f"AM: memory len {len(memory)}. Skipped training")
                 time.sleep(1)
-            else:
-                if config.adaptation:
-                    if config.relabel_method == "LabelSpreading":
-                        if time.perf_counter() - start_time > 120:
-                            t_ls = time.perf_counter()
-                            n_mem_idx = np.argwhere(memory.experience_outcome == "N")
-                            labels = np.argmax(memory.experience_targets, axis=1)
-                            labels[n_mem_idx] = -1
+            elif config.adaptation:
+                if config.relabel_method == "LabelSpreading":
+                    t_ls = time.perf_counter()
+                    labels = np.argmax(memory.experience_targets, axis=1)
+                    labels[np.argwhere(memory.experience_outcome == "N")] = -1
 
-                            ls = LabelSpreading(kernel="knn", alpha=0.2, n_neighbors=50)
-                            ls.fit(memory.experience_data, labels)
+                    ls = LabelSpreading(kernel="knn", alpha=0.2, n_neighbors=50)
+                    ls.fit(memory.experience_data, labels)
 
-                            current_targets = ls.transduction_
-                            memory.experience_targets = np.eye(len(config.gesture_ids))[
-                                current_targets
-                            ]
-                            del_t_ls = time.perf_counter() - t_ls
-                            logging.info(
-                                f"ADAPTMANAGER: LS - round {adapt_round}; LS TIME: {del_t_ls:.2f}s"
-                            )
+                    current_targets = ls.transduction_
+                    memory.experience_targets = np.eye(len(config.gesture_ids))[
+                        current_targets
+                    ]
+                    del_t_ls = time.perf_counter() - t_ls
+                    logger.info(f"AM: LS TIME: {del_t_ls:.2f} s")
 
-                    t1 = time.perf_counter()
+                adap_data, adap_labels = (
+                    memory.experience_data,
+                    memory.experience_targets,
+                )
 
-                    preds = a_model.predict(memory.experience_data)
-                    acc = accuracy_score(
-                        np.argmax(memory.experience_targets, axis=1), preds
+                # adap_data, adap_labels = resample(
+                #     memory.experience_data,
+                #     memory.experience_targets,
+                #     replace=False,
+                #     n_samples=1000,
+                # )
+
+                preds = a_model.predict(adap_data)
+                acc = accuracy_score(np.argmax(adap_labels, axis=1), preds)
+                logger.info(f"AM: #{adapt_round+1} pre-acc: {acc*100:.2f}%")
+
+                t1 = time.perf_counter()
+                rets = a_model.fit(adap_data, adap_labels.astype(np.float32))
+                del_t = time.perf_counter() - t1
+
+                if rets:
+                    adapt_round += 1
+                    csv_results.writerow(
+                        [adapt_round, len(memory)] + list(rets.values())
                     )
-                    print(
-                        f"Round {adapt_round+1} pre-acc: {acc*100:.2f}% ({len(memory)} samples)"
+                    csv_file.flush()
+                    logger.info(
+                        f"AM: #{adapt_round} adap-acc: {rets['acc']*100:.2f}%, adap time {del_t:.2f} s"
                     )
-
-                    rets = a_model.fit(
-                        memory.experience_data,
-                        memory.experience_targets.astype(np.float32),
-                    )
-
-                    del_t = time.perf_counter() - t1
-
-                    if rets:
-                        csv_results.writerow(
-                            [adapt_round, len(memory)] + list(rets.values())
-                        )
-                        csv_file.flush()
-                        print(
-                            f"Round {adapt_round+1} adap-acc: {rets['acc']*100:.2f}%, adap time {del_t:.2f} s"
-                        )
 
                     new_model = copy.deepcopy(a_model)
 
@@ -149,26 +152,17 @@ def worker(
                     config.model = new_model
                     model_lock.release()
 
-                    logger.info(
-                        f"ADAPTMANAGER: ADAPTED - round {adapt_round}; \tADAPT TIME: {del_t:.2f}s"
+                    save_nn(
+                        a_model,
+                        model_path + f"model_{adapt_round}.pth",
                     )
-
-                    # save_nn(
-                    #     a_model,
-                    #     model_path + f"{adapt_round}.pth",
-                    # )
-
-                    print(f"Adapted {adapt_round+1} times")
-
-                adapt_round += 1
 
             # tell MemoryManager we are ready for more adaptation data
             in_sock.sendto("WAITING".encode(), ("localhost", out_port))
-            logger.info("ADAPTMANAGER: WAITING FOR DATA")
+            logger.info("AM: waiting for data")
             time.sleep(5)
         except Exception:
-            logging.error("ADAPTMANAGER: " + traceback.format_exc())
+            logger.error("AM: " + traceback.format_exc())
             return
-    else:
-        print("AdaptManager Finished!")
-        memory.write(memory_dir, 1000)
+    memory.write(memory_dir, 1000)
+    logger.info("AM: finished")

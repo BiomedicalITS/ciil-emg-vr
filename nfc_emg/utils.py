@@ -2,11 +2,16 @@ import os
 from typing import Iterable
 import json
 import shutil
+import matplotlib.pyplot as plt
+from sklearn.metrics import ConfusionMatrixDisplay
+
+import numpy as np
 
 from libemg.data_handler import OnlineDataHandler
 from libemg.screen_guided_training import ScreenGuidedTraining
 from libemg.filtering import Filter
 
+from nfc_emg.paths import NfcPaths
 from nfc_emg.sensors import EmgSensor, EmgSensorType
 
 
@@ -314,6 +319,18 @@ def save_eval_results(results: dict, path: str):
         tmp_results["CONF_MAT"] = 0
         json.dump(tmp_results, f, indent=4)
     return tmp_results
+
+
+def show_conf_mat(results: dict, paths: NfcPaths, gesture_ids: list):
+    """
+    Show confusion matrix from results returned from LibEMG OfflineMetrics
+    """
+    conf_mat = results["CONF_MAT"] / np.sum(results["CONF_MAT"], axis=1, keepdims=True)
+    test_gesture_names = get_name_from_gid(
+        paths.gestures, paths.get_train(), gesture_ids
+    )
+    ConfusionMatrixDisplay(conf_mat, display_labels=test_gesture_names).plot()
+    plt.show()
 
 
 if __name__ == "__main__":

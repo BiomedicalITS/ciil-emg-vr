@@ -1,3 +1,4 @@
+from asyncio import windows_events
 from multiprocessing import Process
 import time
 import os
@@ -13,6 +14,28 @@ from nfc_emg import datasets, utils, models, schemas as s
 from nfc_emg.paths import NfcPaths
 
 import configs as g
+
+
+def labelspread():
+    from sklearn.semi_supervised import LabelSpreading
+    from sklearn.metrics import accuracy_score
+    import os
+
+    os.environ["OMP_NUM_THREADS"] = "1"
+    data = datasets.get_offline_datahandler("data/bio/-1/train/", list(range(8)), [0])
+
+    windows, labels = datasets.prepare_data(data, EmgSensor(EmgSensorType.BioArmband))
+    features = FeatureExtractor().extract_feature_group("TDPSD", windows, array=True)
+
+    randind = np.random.randint(0, len(labels), len(labels) // 10)
+
+    sim = labels.copy()
+    sim[randind] = -1
+
+    model = LabelSpreading(kernel="rbf", n_neighbors=10, max_iter=1000, tol=1e-3)
+    model.fit(features, sim)
+
+    print(accuracy_score(labels, model.transduction_))
 
 
 def visualize_data():
@@ -369,7 +392,8 @@ if __name__ == "__main__":
     # test_pid()
     # test_process()
     # test_np_shared()
-    test_np()
+    # test_np()
+    labelspread()
     # test_dict_iter()
     # test_dict_iter()
     # test_read_emg_csv()

@@ -57,7 +57,9 @@ def get_offline_datahandler(
     return odh
 
 
-def prepare_data(odh: OfflineDataHandler, sensor: EmgSensor):
+def prepare_data(
+    odh: OfflineDataHandler, sensor: EmgSensor
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Prepare data stored in an OfflineDataHandler.
 

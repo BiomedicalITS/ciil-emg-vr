@@ -107,7 +107,6 @@ POSE_TO_NAME = {
     "H1": "Index_Pinch",
     "H2": "Hand_Close",
     "H3": "Chuck_Grip",
-    "H4": "Index_Pinch",
     "T1": "Index_Extension",
     "T2": "Wrist_Flexion",
     "T4": "Hand_Open",

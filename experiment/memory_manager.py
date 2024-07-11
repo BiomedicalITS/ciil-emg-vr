@@ -83,10 +83,13 @@ def worker(
     data_dir = config.paths.get_train()
 
     logger = logging.getLogger("memory_manager")
+    logger.setLevel(logging.INFO)
     fh = logging.FileHandler(save_dir + "mem_manager.log", mode="w")
     fh.setLevel(logging.INFO)
     logger.addHandler(fh)
-    logger.setLevel(logging.INFO)
+    fs = logging.StreamHandler()
+    fs.setLevel(logging.INFO)
+    logger.addHandler(fs)
 
     # receive messages from the adaptation manager
     in_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -144,7 +147,7 @@ def worker(
 
     start_time = time.perf_counter()
 
-    print("MemoryManager is starting!")
+    logger.info("MM: starting")
 
     num_written = 0
     total_samples_unfound = 0
@@ -167,20 +170,20 @@ def worker(
                         done = True
                         in_sock.sendto(b"STOP", out_port)
                         del_t = time.perf_counter() - start_time
-                        logger.info(f"MEMORYMANAGER: GOT DONE FLAG AT {del_t:.2f} s")
+                        logger.info(f"MM: done flag at {del_t:.2f} s")
+                        continue
                     elif not (udp_packet.startswith("P") or udp_packet.startswith("N")):
                         # ensure context packet
                         continue
 
-                    # New context received from Unity
-                    logger.info(f"MEMORYMANAGER: GOT PACKET: {udp_packet}")
+                    logger.info(f"MM: {udp_packet}")
 
                     live_data_lock.acquire()
                     adap_data = live_data.copy()
                     live_data_lock.release()
 
                     if 0 in adap_data[:, 0]:
-                        logger.info("MemoryManager waiting for more CSV data...")
+                        logger.info("MM: waiting for more CSV data")
                         continue
 
                     # logger.info(
@@ -199,7 +202,7 @@ def worker(
 
                     if result is None:
                         total_samples_unfound += 1
-                        logger.warning("No valid window found.")
+                        logger.warning("MM: no matching window found")
                         continue
 
                     (
@@ -209,12 +212,6 @@ def worker(
                         adap_type,
                         timestamp,
                     ) = result
-
-                    # print(udp_packet)
-                    # print(adap_label)
-                    # print(adap_possibilities)
-                    # print(adap_type)
-                    # print("=" * 50)
 
                     if len(adap_data) != len(adap_label):
                         continue
@@ -226,7 +223,7 @@ def worker(
                         adap_type,
                         timestamp,
                     )
-                    logger.info(f"MemoryManager: memory length {len(memory)}")
+                    logger.info(f"MM: memory len {len(memory)}")
 
                 if sock == in_sock or is_adapt_mngr_waiting:
                     if udp_packet == "WAITING":
@@ -245,7 +242,7 @@ def worker(
                     del_t = time.perf_counter() - t1
 
                     logger.info(
-                        f"MEMORYMANAGER: WROTE FILE: {num_written},\t lines:{len(memory)},\t unfound: {total_samples_unfound},\t WRITE TIME: {del_t:.2f}s"
+                        f"MM: write #{num_written} with len {len(memory)}, unfound: {total_samples_unfound}, WRITE TIME: {del_t:.2f} s"
                     )
                     num_written += 1
                     memory = Memory()
@@ -253,9 +250,8 @@ def worker(
                     in_sock.sendto(b"WROTE", out_port)
                     is_adapt_mngr_waiting = False
         except Exception:
-            print("MEMORYMANAGER: " + traceback.format_exc())
             in_sock.sendto(b"STOP", out_port)
-            logger.error("MEMORYMANAGER: " + traceback.format_exc())
+            logger.error("MM: " + traceback.format_exc())
             return
 
 
