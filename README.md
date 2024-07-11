@@ -1,6 +1,6 @@
 # Self-supervised EMG gesture recognition
 
-This project investigates the implementation of a self-supervised EMG gesture recognition system with the help of contextual information.
+This project investigates the implementation of a self-supervised EMG gesture recognition system with the help of contextual information in the scope of interacting with day-to-day objects.
 
 ## Set up
 
@@ -12,40 +12,30 @@ source .venv/bin/activate
 python3 -m pip install -e ./
 ```
 
-## Using nfc-emg
+## Usage
 
-Leveraging LibEMG, we reuse the paradigm of a hardware-agnostic _OnlineDataHandler_ reading in live data from a UDP _streamer_.
+For VR experiments, first set your desired configurations (`experiment/config.py`) and then set the _game stage_ `experiment/main.py`. Launch the stage with:
 
-These are the main scripts of interest in `workstation/`:
+`python3 experiment/main.py`
 
-- `offline_main.py` is executed to train the initial model. It is also used to finetune the model in an offline manner. Screen Guided Training is used for that.
-- `online_main.py` is the live experiment script. It starts by calibrating the IMU. Then, the `run()` function infinitely loops. It uses the IMU for 3D cartesian position. EMG is used for wrist and grip detection. The commands are sent to a UDP port. An input UDP socket is also opened to receive self-supervised labels.
-- `globals.py` defines system-wide parameters. This file is the main way of configuring the system.
-- `schemas.py` is used to interface with an external robot control system. It should be imported on the client-side to ensure compatibility.
+## VR Project
 
-## General overview
+The VR project (Unity game) is only needed for the _Game_ stage. The Python server is responsible for generating live EMG gesture predictions which are retrieved by Unity.
 
-### NFC
+1. Launch the Python experiment with `ExperimentStage.GAME` stage. It'll wait for Unity to start up
+2. Launch the Unity game. See the [VR project](https://github.com/ThomasLabbe01/VrGameRFID) repo
+3. In the game, launch the VR experiment by pressing the `O` key (start object grabbing task) and the `Space` key (start the timer and save scene metadata to disk).
+4. When you're done, close the Unity Game. Python should automatically exit too.
 
-As a first step, NFC tags are programmed with object IDs and placed on the corresponding objects. Upon scanning a tag, for example by having an NFC reader embedded inside of a prosthetic, pseudo-labels are generated, allowing the model to be retrained on the fly.
+All experiment logs are stored somewhere under `data/`. Unity logs are under `data/unity/` with the experiment start timestamp as filename. Python logs are stored in `data/<subject_id>/<sensor>/`.
 
-In this scenario, a UR5 robotic arm is used for live demonstrations. Its 3D position is derived from an IMU, while the finer wrist and finger movements are extracted from the self-supervised model.
+See the VR project's readme for more details about the Unity side.
 
-### VR
+## Developing
 
-In VR, virtual objects can be freely placed in a simulated environment, eliminating the need to program and place NFC tags on physical objects. Also, arm and hand tracking is offered by the headset. This alternative setup helps to replicate experiments more effectively and follows in the current trends in using VR to ease the training for EMG prosthetics.
-
-## Ideas
-
-- execute a python script via ssh upon scanning an NFC tag with cellphone
-- create object classes (shapes?) which are associated with metadata such as grip types
-- program the NFC tags with the classes and stick them on objects
-- when an NFC tag is scanned, label the next X s of data
-- even better: label until significant IMU data is detected, meaning the arm is
-- for each labelled "object type", use the IMU data to guess the correct label: eg a cup from the top is a "hand open", from the side "chuck grip (pinch)" (handle) or "power grip"
+This project also provides a somewhat generic library, located in `nfc_emg/`. Most things are self-explanatory or documented with docstrings.
 
 ## Resources
 
-- [VR project](https://github.com/ThomasLabbe01/VrGameRFID)
 - [LibEMG doc](https://libemg.github.io/libemg/#)
 - [LibEMG gesture library](https://github.com/libemg/LibEMGGestures)
