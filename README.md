@@ -23,7 +23,7 @@ For VR experiments, first set your desired configurations (`experiment/config.py
 The VR project (Unity game) is only needed for the _Game_ stage. The Python server is responsible for generating live EMG gesture predictions which are retrieved by Unity.
 
 1. Launch the Python experiment with `ExperimentStage.GAME` stage. It'll wait for Unity to start up
-2. Launch the Unity game. See the [VR project](https://github.com/ThomasLabbe01/VrGameRFID) repo
+2. Launch the Unity game. See the [VR project](https://github.com/ThomasLabbe01/VrGameRFID) repo's **gab** branch
 3. In the game, launch the VR experiment by pressing the `O` key (start object grabbing task) and the `Space` key (start the timer and save scene metadata to disk).
 4. When you're done, close the Unity Game. Python should automatically exit too.
 
