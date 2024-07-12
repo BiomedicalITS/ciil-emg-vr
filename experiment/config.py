@@ -25,6 +25,7 @@ class Config:
         self,
         subject_id: int,
         sensor_type: EmgSensorType,
+        features: str | list,
         stage: ExperimentStage,
         adaptation: bool = True,
     ):
@@ -39,16 +40,15 @@ class Config:
         )
 
         self.adaptation = adaptation
+        self.features = features  # Can be list of features OR feature group
 
         self.model_type = "CNN"  # Can be "CNN" or "MLP"
         self.negative_method = "mixed"  # Can be "mixed" or "none"
         self.relabel_method = "LabelSpreading"
+        self.gesture_ids = [1, 2, 3, 4, 5, 8, 26, 30]
 
         if self.relabel_method == "LabelSpreading":
             os.environ["OMP_NUM_THREADS"] = "1"
-
-        self.gesture_ids = [1, 2, 3, 4, 5, 8, 26, 30]
-        self.features = "TDPSD"  # Can be list of features OR feature group
 
         self.get_path_parameters()
         self.get_feature_parameters()

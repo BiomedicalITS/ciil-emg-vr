@@ -8,23 +8,14 @@ from familiarization import Familiarization
 from game import Game
 
 
-def main(step):
+def main(subject_id, sensor, features, step, adaptation, sample_data):
     config = Config(
-        subject_id="2024_07_11",
-        sensor_type=EmgSensorType.BioArmband,
-        # sensor_type=EmgSensorType.MyoArmband,
-        # sensor_type=EmgSensorType.Emager,
+        subject_id=subject_id,
+        sensor_type=sensor,
+        features=features,
         stage=step,
-        # stage=ExperimentStage.FAMILIARIZATION,
-        # stage=ExperimentStage.VISUALIZE_CLASSIFIER,
-        # stage=ExperimentStage.SG_TRAIN,
-        # stage=ExperimentStage.SG_TEST,
-        # stage=ExperimentStage.GAME,
-        # stage=ExperimentStage.SG_POST_TEST,
-        # adaptation=False,
+        adaptation=adaptation,
     )
-    SAMPLE_DATA = False
-    # SAMPLE_DATA = True
 
     if config.stage == ExperimentStage.FAMILIARIZATION:
         fam = Familiarization(config, False)
@@ -36,7 +27,7 @@ def main(step):
         models.main_train_nn(
             config.model,
             config.sensor,
-            SAMPLE_DATA,
+            sample_data,
             config.features,
             config.gesture_ids,
             config.paths.gestures,
@@ -50,7 +41,7 @@ def main(step):
         results = models.main_test_nn(
             config.model,
             config.sensor,
-            SAMPLE_DATA,
+            sample_data,
             config.features,
             config.gesture_ids,
             config.paths.gestures,
@@ -68,11 +59,11 @@ def main(step):
         results = models.main_test_nn(
             config.model,
             config.sensor,
-            SAMPLE_DATA,
+            sample_data,
             config.features,
             config.gesture_ids,
             config.paths.gestures,
-            config.paths.get_fine(),
+            config.paths.get_test(),
         )
         results_file = config.paths.get_results().replace(".csv", "_post.json")
         utils.save_eval_results(results, results_file)
@@ -81,12 +72,20 @@ def main(step):
 
 if __name__ == "__main__":
     seed_everything(310)
+    subject = "2024_07_12"
+    features = "TDPSD"
+    sensor = EmgSensorType.BioArmband
     steps = [
-        ExperimentStage.SG_TRAIN,
-        ExperimentStage.SG_TEST,
+        # ExperimentStage.SG_TRAIN,
+        # ExperimentStage.SG_TEST,
         # ExperimentStage.GAME,
-        # ExperimentStage.SG_POST_TEST,
+        ExperimentStage.SG_POST_TEST,
     ]
+    adaptation = True
+    sample_data = False
+
     for step in steps:
-        main(step)
+        print(f"Running step {step}")
+        main(subject, sensor, features, step, adaptation, sample_data)
+
     print("Exiting experiment main thread.")

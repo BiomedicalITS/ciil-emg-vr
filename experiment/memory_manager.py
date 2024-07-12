@@ -120,6 +120,8 @@ def worker(
         [0.0] * len(base_labels),
     )
 
+    # memory = Memory()
+
     # runtime constants
     name_to_cid = reverse_dict(map_cid_to_name(config.paths.get_train()))
     unity_to_cid_map = {k: name_to_cid[v] for k, v in POSE_TO_NAME.items() if v != -1}

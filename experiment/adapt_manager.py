@@ -61,18 +61,16 @@ def worker(
     # variables to save
     adapt_round = 0
 
-    logger.info("AM: starting")
-
     # receive messages from MemoryManager
     in_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     in_sock.bind(("localhost", in_port))
     in_sock.sendto("WAITING".encode("utf-8"), ("localhost", out_port))
 
-    # initial time
-    start_time = time.perf_counter()
     csv_file = open(config.paths.get_results(), "w", newline="")
     csv_results = csv.writer(csv_file)
 
+    logger.info("AM: starting")
+    start_time = time.perf_counter()
     time.sleep(5)
     while time.perf_counter() - start_time < config.game_time:
         try:
