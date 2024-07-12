@@ -3,21 +3,20 @@ from lightning.pytorch import seed_everything
 from nfc_emg import models, utils
 from nfc_emg.sensors import EmgSensorType
 
-from familiarization import Familiarization
 from config import Config, ExperimentStage
-
+from familiarization import Familiarization
 from game import Game
 
 
 def main():
     config = Config(
-        subject_id="2024_07_11",
+        subject_id="2024_07_12",
         sensor_type=EmgSensorType.BioArmband,
         # stage=ExperimentStage.FAMILIARIZATION,
         # stage=ExperimentStage.VISUALIZE_CLASSIFIER,
-        # stage=ExperimentStage.SG_TRAIN,
+        stage=ExperimentStage.SG_TRAIN,
         # stage=ExperimentStage.SG_TEST,
-        stage=ExperimentStage.GAME,
+        # stage=ExperimentStage.GAME,
         # stage=ExperimentStage.SG_POST_TEST,
         # adaptation=False,
     )
@@ -66,7 +65,7 @@ def main():
         results = models.main_test_nn(
             config.model,
             config.sensor,
-            True,
+            SAMPLE_DATA,
             config.features,
             config.gesture_ids,
             config.paths.gestures,
