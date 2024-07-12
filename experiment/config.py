@@ -31,7 +31,11 @@ class Config:
         self.stage = stage
         self.subject_id = subject_id
         self.sensor = EmgSensor(
-            sensor_type, window_size_ms=150, window_inc_ms=20, majority_vote_ms=0
+            sensor_type,
+            notch_freq=50,
+            window_size_ms=150,
+            window_inc_ms=20,
+            majority_vote_ms=0,
         )
 
         self.adaptation = adaptation
@@ -43,7 +47,6 @@ class Config:
         if self.relabel_method == "LabelSpreading":
             os.environ["OMP_NUM_THREADS"] = "1"
 
-        # 24 is Ring Flexion in LibEMG but image is tripod pinch
         self.gesture_ids = [1, 2, 3, 4, 5, 8, 26, 30]
         self.features = "TDPSD"  # Can be list of features OR feature group
 
@@ -61,20 +64,14 @@ class Config:
 
         if self.stage >= ExperimentStage.GAME and self.adaptation:
             src = self.paths.get_experiment_dir()
-            self.paths.set_trial("adap")
+            self.paths.trial = "adap"
             if "adap" not in os.listdir(self.paths.base):
-                copytree(src, self.paths.get_experiment_dir(), dirs_exist_ok=True)
+                copytree(src, self.paths.get_experiment_dir())
 
     def get_feature_parameters(self):
-        fe = libemg.feature_extractor.FeatureExtractor()
         if isinstance(self.features, str):
+            fe = libemg.feature_extractor.FeatureExtractor()
             self.features = fe.get_feature_groups()[self.features]
-
-        # fake_window = np.random.randn(1, np.prod(self.sensor.emg_shape), self.sensor.window_size)
-        # returned_features = fe.extract_features(self.features, fake_window)
-
-        # self.input_shape = np.squeeze(self.sensor.emg_shape)
-        # self.num_features = len(returned_features)
 
     def get_datacollection_parameters(self):
         self.reps = 5

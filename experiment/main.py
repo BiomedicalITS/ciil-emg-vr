@@ -8,20 +8,23 @@ from familiarization import Familiarization
 from game import Game
 
 
-def main():
+def main(step):
     config = Config(
-        subject_id="2024_07_12",
+        subject_id="2024_07_11",
         sensor_type=EmgSensorType.BioArmband,
+        # sensor_type=EmgSensorType.MyoArmband,
+        # sensor_type=EmgSensorType.Emager,
+        stage=step,
         # stage=ExperimentStage.FAMILIARIZATION,
         # stage=ExperimentStage.VISUALIZE_CLASSIFIER,
-        stage=ExperimentStage.SG_TRAIN,
+        # stage=ExperimentStage.SG_TRAIN,
         # stage=ExperimentStage.SG_TEST,
         # stage=ExperimentStage.GAME,
         # stage=ExperimentStage.SG_POST_TEST,
         # adaptation=False,
     )
-    # SAMPLE_DATA = False
-    SAMPLE_DATA = True
+    SAMPLE_DATA = False
+    # SAMPLE_DATA = True
 
     if config.stage == ExperimentStage.FAMILIARIZATION:
         fam = Familiarization(config, False)
@@ -78,5 +81,12 @@ def main():
 
 if __name__ == "__main__":
     seed_everything(310)
-    main()
+    steps = [
+        ExperimentStage.SG_TRAIN,
+        ExperimentStage.SG_TEST,
+        # ExperimentStage.GAME,
+        # ExperimentStage.SG_POST_TEST,
+    ]
+    for step in steps:
+        main(step)
     print("Exiting experiment main thread.")

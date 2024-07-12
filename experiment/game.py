@@ -37,7 +37,7 @@ class Game:
 
         classi = EMGClassifier()
         classi.classifier = config.model
-        classi.add_majority_vote(self.sensor.maj_vote_n)
+        # classi.add_majority_vote(self.sensor.maj_vote_n)
         # classi.add_rejection()
 
         self.oclassi = OnlineEMGClassifier(
@@ -59,16 +59,14 @@ class Game:
     def run(self):
         print("Waiting for Unity to send 'READY'...")
 
-        # before running streamer, oclassi, memoryManager and adaptManager, consumes ~20% of CPU
-
-        # unity_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # unity_sock.bind(("localhost", self.unity_port))
-        # while True:
-        #     unity_packet = unity_sock.recv(1024).decode()
-        #     if unity_packet == "READY":
-        #         # global_timer = time.perf_counter()
-        #         unity_sock.close()
-        #         break
+        unity_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        unity_sock.bind(("localhost", self.unity_port))
+        while True:
+            unity_packet = unity_sock.recv(1024).decode()
+            if unity_packet == "READY":
+                # global_timer = time.perf_counter()
+                unity_sock.close()
+                break
 
         print("Starting the Python Game Stage!")
 
