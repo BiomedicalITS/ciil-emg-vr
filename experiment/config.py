@@ -90,7 +90,10 @@ class Config:
             else "mps" if torch.backends.mps.is_available() else "cpu"
         )
 
-        if self.stage == ExperimentStage.SG_TRAIN:
+        if (
+            self.stage == ExperimentStage.SG_TRAIN
+            or self.stage == ExperimentStage.FAMILIARIZATION
+        ):
             # New model
             if self.model_type == "CNN":
                 self.model = models.EmgCNN(
@@ -107,7 +110,6 @@ class Config:
         elif self.stage == ExperimentStage.SG_POST_TEST:
             self.paths.set_model("model_post")
 
-        # Load if needed
         if self.model_type == "CNN":
             self.model = models.load_conv(
                 self.paths.get_model(), self.num_channels, self.input_shape
