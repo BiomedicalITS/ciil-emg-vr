@@ -72,17 +72,19 @@ def main(subject_id, sensor, features, step, adaptation, sample_data):
 
 if __name__ == "__main__":
     seed_everything(310)
-    subject = "2024_07_12"
     features = "TDPSD"
+
+    subject = "0_2"
     sensor = EmgSensorType.BioArmband
-    steps = [
-        # ExperimentStage.SG_TRAIN,
-        # ExperimentStage.SG_TEST,
-        # ExperimentStage.GAME,
-        ExperimentStage.SG_POST_TEST,
-    ]
+
+    # steps = [ExperimentStage.FAMILIARIZATION]
+    # steps = [ExperimentStage.SG_TRAIN, ExperimentStage.SG_TEST]
+    # steps = [ExperimentStage.SG_TEST]
+    steps = [ExperimentStage.GAME]
+    # steps = [ExperimentStage.SG_POST_TEST]
+
     adaptation = True
-    sample_data = False
+    sample_data = True
 
     for step in steps:
         print(f"Running step {step}")

@@ -34,8 +34,8 @@ class Config:
         self.sensor = EmgSensor(
             sensor_type,
             notch_freq=50,
-            window_size_ms=150,
-            window_inc_ms=20,
+            window_size_ms=200,
+            window_inc_ms=50,
             majority_vote_ms=0,
         )
 

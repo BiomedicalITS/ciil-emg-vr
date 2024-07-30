@@ -330,6 +330,7 @@ def show_conf_mat(results: dict, paths: NfcPaths, gesture_ids: list):
         paths.gestures, paths.get_train(), gesture_ids
     )
     ConfusionMatrixDisplay(conf_mat, display_labels=test_gesture_names).plot()
+    plt.xticks(rotation=30)
     plt.show()
 
 
