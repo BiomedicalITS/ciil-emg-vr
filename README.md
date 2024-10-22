@@ -14,9 +14,9 @@ python3 -m pip install -e ./
 
 ## Usage
 
-Only the ̀GAME` step requires the VR game. Normally, you'll want to execute them one at a time sequentially. It's tedious.
+Only the `GAME` step requires the VR game. Normally, you'll want to execute them one at a time sequentially. It's tedious.
 
-For VR experiments, first set your desired configurations (`experiment/config.py`) and then set the _game stage_ `experiment/main.py`. Launch the stage with:
+For VR experiments, first set your desired configurations in Config's `init` (`experiment/config.py`) and then set the _game stage_ `experiment/main.py` to the desired one. Launch the stage with:
 
 `python3 experiment/main.py`
 
