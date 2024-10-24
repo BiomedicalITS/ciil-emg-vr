@@ -12,7 +12,7 @@ dependencies = [
     "requests>=2.32.3",
     "bleak>=0.20.2",
     "emager-py @ git+https://github.com/SBIOML/emager-py@63a6a602d7aa904e83f41d18b142d3ef4357792b",
-    "libemg @ git+https://github.com/gabrielpgagne/libemg@main",
+    "libemg @ git+https://github.com/gabrielpgagne/libemg@self-supervised",
     "torch>=2.3.1",
 ]
 requires-python = "<3.13,>=3.10"
