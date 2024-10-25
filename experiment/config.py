@@ -29,11 +29,17 @@ class Config:
         stage: ExperimentStage,
         adaptation: bool = True,
     ):
+        POWERLINE_NOTCH_FREQ = 60  # 50 for EU, 60 for NA
+        self.model_type = "CNN"  # Can be "CNN" or "MLP"
+        self.negative_method = "mixed"  # Can be "mixed" or "none"
+        self.relabel_method = "LabelSpreading"
+        self.gesture_ids = [1, 2, 3, 4, 5, 8, 26, 30]
+
         self.stage = stage
         self.subject_id = subject_id
         self.sensor = EmgSensor(
             sensor_type,
-            notch_freq=50,
+            notch_freq=POWERLINE_NOTCH_FREQ,
             window_size_ms=200,
             window_inc_ms=50,
             majority_vote_ms=0,
@@ -41,11 +47,6 @@ class Config:
 
         self.adaptation = adaptation
         self.features = features  # Can be list of features OR feature group
-
-        self.model_type = "CNN"  # Can be "CNN" or "MLP"
-        self.negative_method = "mixed"  # Can be "mixed" or "none"
-        self.relabel_method = "LabelSpreading"
-        self.gesture_ids = [1, 2, 3, 4, 5, 8, 26, 30]
 
         if self.relabel_method == "LabelSpreading":
             os.environ["OMP_NUM_THREADS"] = "1"
