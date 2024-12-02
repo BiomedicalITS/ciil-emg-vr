@@ -21,7 +21,7 @@ class EmgSensor:
     ):
         self.sensor_type = sensor_type
         if sensor_type == EmgSensorType.BioArmband:
-            self.fs = 1500
+            self.fs = 2000
             self.emg_shape = (8,)
         elif sensor_type == EmgSensorType.MyoArmband:
             self.fs = 200
