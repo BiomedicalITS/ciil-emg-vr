@@ -89,9 +89,9 @@ def run_classifier(oclassi: OnlineEMGClassifier, save_path: str, lock: Lock):
                 prediction = values[np.argmax(counts)]
             preds_count += 1
             newline = [time_stamp, prediction] + window.flatten().tolist()
-            print(
-                f"Classifier: writing new line with len {len(newline)} (total {preds_count})"
-            )
+            # print(
+            #     f"({time.time():.4f}) classifier: Wrote {len(newline)} new lines (total {preds_count})"
+            # )
             writer.writerow(newline)
             csvfile.flush()
 
@@ -101,4 +101,6 @@ def run_classifier(oclassi: OnlineEMGClassifier, save_path: str, lock: Lock):
             if oclassi.std_out:
                 print(message)
 
-            # print(f"Classification time: {1000*(time.time() - time_stamp):.3f} ms")
+            # print(
+            #     f"Classification time: {1000*(time.perf_counter() - float(time_stamp)):.3f} ms"
+            # )

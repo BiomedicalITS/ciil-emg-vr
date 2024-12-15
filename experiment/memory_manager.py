@@ -1,9 +1,7 @@
-import csv
 import socket
 import select
 import numpy as np
 import time
-import traceback
 import logging
 import os
 from collections import deque
@@ -49,15 +47,14 @@ def csv_reader(file_path: str, array: np.ndarray, lock: Lock):
         while True:
             lines = c.readlines()
             if len(lines) == 0:
-                time.sleep(0.01)
                 continue
             lines_read += len(lines)
             # print(f"csv_reader: Read {len(lines)} lines from {file_path}")
 
             new_array = np.fromstring("".join(lines).replace("\n", ","), sep=",")
-            print(
-                f"csv_reader: Read {len(lines)} new lines (total {lines_read}) with shape: {new_array.shape}"
-            )
+            # print(
+            #     f"({time.time():.4f}) csv_reader: Read {len(lines)} new lines (total {lines_read}) with shape: {new_array.shape}"
+            # )
             new_array = new_array.reshape(-1, array_width)
             window_queue.extend(new_array)
 
@@ -161,10 +158,12 @@ def run_memory_manager(
     while not done:
         try:
             if not csv_t.is_alive():
-                logger.error("CSV THREAD DEADDDDDDDDDDd")
+                logger.error("NN: CSV THREAD DEADDDDDDDDDDd")
                 raise Exception("CSV reader thread died")
 
-            ready_to_read, _, _ = select.select([manager_sock, unity_in_sock], [], [])
+            ready_to_read, _, _ = select.select(
+                [manager_sock, unity_in_sock], [], [], 0.5
+            )
 
             if len(ready_to_read) == 0:
                 time.sleep(0.05)
@@ -270,7 +269,6 @@ def run_memory_manager(
                     is_adapt_mngr_waiting = False
         except Exception as e:
             logger.error(f"MM: {e}")
-        finally:
             manager_sock.sendto(b"STOP", adapt_manager_addr)
             return
 

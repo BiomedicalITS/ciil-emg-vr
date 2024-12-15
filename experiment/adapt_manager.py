@@ -73,6 +73,7 @@ def run_adaptation_manager(
         try:
             udp_pkt = manager_sock.recv(1024).decode()
             if udp_pkt == "STOP":
+                logger.info("AM: received STOP")
                 break
             elif udp_pkt != "WROTE":
                 continue
@@ -157,8 +158,8 @@ def run_adaptation_manager(
             manager_sock.sendto("WAITING".encode(), mem_manager_addr)
             logger.info("AM: waiting for data")
             time.sleep(5)
-        except Exception:
-            logger.error("AM: " + traceback.format_exc())
-            return
+        except Exception as e:
+            logger.error(f"AM: {e}")
+            break
     memory.write(memory_dir, 1000)
     logger.info("AM: finished")

@@ -51,6 +51,12 @@ class Config:
         if self.relabel_method == "LabelSpreading":
             os.environ["OMP_NUM_THREADS"] = "1"
 
+        if not torch.cuda.is_available():
+            print("========================================")
+            print("CRITICAL WARNING: CUDA is not available.")
+            input("Press any key to continue....")
+            print("========================================")
+
         self.get_path_parameters()
         self.get_feature_parameters()
         self.get_datacollection_parameters()
