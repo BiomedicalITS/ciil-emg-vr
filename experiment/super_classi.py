@@ -73,6 +73,16 @@ def run_classifier(oclassi: OnlineEMGClassifier, save_path: str, lock: Lock):
             prediction = prediction[0]
             probability = probability[0]
 
+            # Don't take into account post-processing for csv
+            preds_count += 1
+            newline = [time_stamp, prediction] + window.flatten().tolist()
+            writer.writerow(newline)
+            csvfile.flush()
+
+            # print(
+            #     f"({time.time():.4f}) classifier: Wrote 1 new lines (total {preds_count})"
+            # )
+
             # Check for rejection
             if oclassi.classifier.rejection:
                 # TODO: Right now this will default to -1
@@ -87,15 +97,8 @@ def run_classifier(oclassi: OnlineEMGClassifier, save_path: str, lock: Lock):
                     list(oclassi.previous_predictions), return_counts=True
                 )
                 prediction = values[np.argmax(counts)]
-            preds_count += 1
-            newline = [time_stamp, prediction] + window.flatten().tolist()
-            # print(
-            #     f"({time.time():.4f}) classifier: Wrote {len(newline)} new lines (total {preds_count})"
-            # )
-            writer.writerow(newline)
-            csvfile.flush()
-
             message = f"{prediction} {time_stamp}"
+            # print(message)
             oclassi.sock.sendto(message.encode(), (oclassi.ip, oclassi.port))
 
             if oclassi.std_out:

@@ -36,7 +36,7 @@ class Game:
 
         classi = EMGClassifier()
         classi.classifier = config.model
-        # classi.add_majority_vote(self.sensor.maj_vote_n)
+        classi.add_majority_vote(self.sensor.maj_vote_n)
         # classi.add_rejection()
 
         self.oclassi = OnlineEMGClassifier(

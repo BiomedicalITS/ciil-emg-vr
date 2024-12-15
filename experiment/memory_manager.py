@@ -49,7 +49,6 @@ def csv_reader(file_path: str, array: np.ndarray, lock: Lock):
             if len(lines) == 0:
                 continue
             lines_read += len(lines)
-            # print(f"csv_reader: Read {len(lines)} lines from {file_path}")
 
             new_array = np.fromstring("".join(lines).replace("\n", ","), sep=",")
             # print(
@@ -58,7 +57,8 @@ def csv_reader(file_path: str, array: np.ndarray, lock: Lock):
             new_array = new_array.reshape(-1, array_width)
             window_queue.extend(new_array)
 
-            if len(window_queue) == array_len:
+            if len(window_queue) >= array_len:
+                # print("csv_reader: Wrote new values to array")
                 with lock:
                     array[:] = np.array(window_queue)
 
@@ -161,18 +161,17 @@ def run_memory_manager(
                 logger.error("NN: CSV THREAD DEADDDDDDDDDDd")
                 raise Exception("CSV reader thread died")
 
-            ready_to_read, _, _ = select.select(
-                [manager_sock, unity_in_sock], [], [], 0.5
-            )
+            ready_to_read, _, _ = select.select([manager_sock, unity_in_sock], [], [])
 
             if len(ready_to_read) == 0:
-                time.sleep(0.05)
+                time.sleep(0.005)
                 continue
 
             for sock in ready_to_read:
                 sock: socket.socket
                 udp_packet, address = sock.recvfrom(1024)
                 udp_packet = udp_packet.decode()
+                logger.info(f"MM: received {udp_packet} from {address}")
                 if sock == unity_in_sock:
                     # Unity sends "Q" when it shuts down / is done
                     if udp_packet == "Q":
@@ -247,6 +246,9 @@ def run_memory_manager(
                     if udp_packet == "WAITING":
                         # Training pass done so update model
                         is_adapt_mngr_waiting = True
+                    elif udp_packet == "STOP":
+                        logger.info("MM: received STOP from AdaptManager")
+                        return
 
                     if not is_adapt_mngr_waiting:
                         continue
