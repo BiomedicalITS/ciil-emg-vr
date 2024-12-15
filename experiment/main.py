@@ -74,7 +74,7 @@ if __name__ == "__main__":
     seed_everything(310)
     features = "TDPSD"
 
-    subject = "0_2"
+    subject = 5
     sensor = EmgSensorType.BioArmband
 
     # steps = [ExperimentStage.FAMILIARIZATION]

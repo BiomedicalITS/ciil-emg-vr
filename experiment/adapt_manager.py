@@ -9,7 +9,6 @@ import csv
 import numpy as np
 from sklearn.metrics import accuracy_score
 from sklearn.semi_supervised import LabelSpreading
-from sklearn.utils import resample
 
 from libemg.emg_classifier import OnlineEMGClassifier
 
@@ -19,11 +18,10 @@ from config import Config
 from memory import Memory
 
 
-def worker(
+def run_adaptation_manager(
     config: Config,
     model_lock: Lock,
-    in_port: int,
-    out_port: int,
+    mem_manager_port: int,
     oclassi: OnlineEMGClassifier,
 ):
     """
@@ -50,9 +48,8 @@ def worker(
     logger.addHandler(fs)
 
     # "adaptation model copy"
-    model_lock.acquire()
-    a_model = copy.deepcopy(config.model)
-    model_lock.release()
+    with model_lock:
+        model_to_adapt = copy.deepcopy(config.model)
 
     # initialize memory
     memory = Memory()
@@ -61,20 +58,20 @@ def worker(
     # variables to save
     adapt_round = 0
 
-    # receive messages from MemoryManager
-    in_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    in_sock.bind(("localhost", in_port))
-    in_sock.sendto("WAITING".encode("utf-8"), ("localhost", out_port))
+    # comm with MemoryManager
+    mem_manager_addr = ("localhost", mem_manager_port)
+    manager_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    manager_sock.sendto("WAITING".encode("utf-8"), mem_manager_addr)
 
     csv_file = open(config.paths.get_results(), "w", newline="")
     csv_results = csv.writer(csv_file)
 
     logger.info("AM: starting")
     start_time = time.perf_counter()
-    time.sleep(5)
+
     while time.perf_counter() - start_time < config.game_time:
         try:
-            udp_pkt = in_sock.recv(1024).decode()
+            udp_pkt = manager_sock.recv(1024).decode()
             if udp_pkt == "STOP":
                 break
             elif udp_pkt != "WROTE":
@@ -110,7 +107,7 @@ def worker(
                         current_targets
                     ]
                     del_t_ls = time.perf_counter() - t_ls
-                    logger.info(f"AM: LS TIME: {del_t_ls:.2f} s")
+                    logger.info(f"AM: LabelSpreading time: {del_t_ls:.2f} s")
 
                 adap_data, adap_labels = (
                     memory.experience_data,
@@ -124,12 +121,12 @@ def worker(
                 #     n_samples=1000,
                 # )
 
-                preds = a_model.predict(adap_data)
+                preds = model_to_adapt.predict(adap_data)
                 acc = accuracy_score(np.argmax(adap_labels, axis=1), preds)
                 logger.info(f"AM: #{adapt_round+1} pre-acc: {acc*100:.2f}%")
 
                 t1 = time.perf_counter()
-                rets = a_model.fit(adap_data, adap_labels.astype(np.float32))
+                rets = model_to_adapt.fit(adap_data, adap_labels.astype(np.float32))
                 del_t = time.perf_counter() - t1
 
                 if rets:
@@ -142,21 +139,22 @@ def worker(
                         f"AM: #{adapt_round} adap-acc: {rets['acc']*100:.2f}%, adap time {del_t:.2f} s"
                     )
 
-                    new_model = copy.deepcopy(a_model)
+                    new_model = copy.deepcopy(model_to_adapt)
 
                     # after training, update the model
-                    model_lock.acquire()
-                    oclassi.classifier.classifier = new_model
-                    config.model = new_model
-                    model_lock.release()
+                    with model_lock:
+                        oclassi.classifier.classifier = new_model
+                        config.model = new_model
 
                     save_nn(
-                        a_model,
+                        model_to_adapt,
                         model_path + f"model_{adapt_round}.pth",
                     )
+                else:
+                    logger.warning("AM: no adaptation")
 
             # tell MemoryManager we are ready for more adaptation data
-            in_sock.sendto("WAITING".encode(), ("localhost", out_port))
+            manager_sock.sendto("WAITING".encode(), mem_manager_addr)
             logger.info("AM: waiting for data")
             time.sleep(5)
         except Exception:

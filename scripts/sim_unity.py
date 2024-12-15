@@ -9,7 +9,9 @@ if __name__ == "__main__":
 
     possibilities = "H1 H2"  # set the simulated object possibilities here
 
-    cid_to_name = utils.map_cid_to_ordered_name("data/gestures/", "data/0/bio/train/")
+    cid_to_name = utils.map_cid_to_ordered_name(
+        "data/gestures/", "data/5/bio/adap/train/"
+    )
     print(cid_to_name)
 
     possible_names = [POSE_TO_NAME[p] for p in possibilities.split(" ")]
@@ -40,7 +42,9 @@ if __name__ == "__main__":
                 else:
                     outcome = "N"
 
-                print(f"{pred} {class_name} --- {outcome} ... {possibilities}")
+                print(
+                    f"{timestamp} Prediction: {pred} ({class_name}),  Possibilities: {possibilities} ({outcome})"
+                )
 
                 message = f"{outcome} {timestamp} {possibilities}"
                 output_sock.sendto(message.encode(), out_addr)

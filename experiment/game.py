@@ -11,13 +11,13 @@ from nfc_emg import models
 from config import Config
 import memory_manager
 import adapt_manager
-from super_classi import run_classifier
+import super_classi
 
 
 class Game:
     def __init__(self, config: Config):
         self.classifier_port = 12347
-        self.mem_manager_port = 12348
+        self.mem_manager_server_port = 12348
         self.adap_manager_port = 12349
         self.unity_port = 12350
 
@@ -72,7 +72,7 @@ class Game:
         self.sensor.start_streamer()
 
         Thread(
-            target=run_classifier,
+            target=super_classi.run_classifier,
             args=(
                 self.oclassi,
                 self.paths.get_live() + "preds.csv",
@@ -82,21 +82,19 @@ class Game:
         ).start()
 
         Thread(
-            target=memory_manager.worker,
+            target=memory_manager.run_memory_manager,
             args=(
                 self.config,
-                self.adap_manager_port,
                 self.unity_port,
-                self.mem_manager_port,
+                self.mem_manager_server_port,
             ),
             daemon=True,
         ).start()
 
-        adapt_manager.worker(
+        adapt_manager.run_adaptation_manager(
             self.config,
             self.model_lock,
-            self.mem_manager_port,
-            self.adap_manager_port,
+            self.mem_manager_server_port,
             self.oclassi,
         )
 
