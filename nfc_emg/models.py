@@ -714,7 +714,7 @@ def main_test_nn(
 
     classifier = EMGClassifier()
     classifier.classifier = model.eval()
-    classifier.add_majority_vote(sensor.maj_vote_n)
+    # classifier.add_majority_vote(sensor.maj_vote_n)
     # classifier.add_rejection(0.9)
 
     preds, _ = classifier.run(data)

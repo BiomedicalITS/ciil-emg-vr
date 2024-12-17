@@ -2,6 +2,7 @@ from threading import Lock, Thread
 import os
 
 import socket
+import time
 
 from libemg.emg_classifier import EMGClassifier, OnlineEMGClassifier
 
@@ -61,14 +62,20 @@ class Game:
         unity_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         unity_sock.bind(("localhost", self.unity_port))
         while True:
-            unity_packet = unity_sock.recv(1024).decode()
-            if unity_packet == "READY":
+            unity_packet, addr = unity_sock.recvfrom(1024)
+            print(f"Received: {unity_packet.decode()} from {addr}")
+            if unity_packet.decode() == "READY":
                 # global_timer = time.perf_counter()
+                unity_sock.sendto(
+                    self.config.paths.get_experiment_dir().encode(),
+                    addr,
+                )
+                print(f"Sent: {self.config.paths.get_experiment_dir()} to {addr}")
+                time.sleep(1)
                 unity_sock.close()
                 break
 
         print("Starting the Python Game Stage!")
-
         self.sensor.start_streamer()
 
         Thread(
