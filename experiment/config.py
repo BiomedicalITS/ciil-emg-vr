@@ -96,6 +96,7 @@ class Config:
             if torch.cuda.is_available()
             else "mps" if torch.backends.mps.is_available() else "cpu"
         )
+        torch.set_float32_matmul_precision("high")
 
         if (
             self.stage == ExperimentStage.SG_TRAIN

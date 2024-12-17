@@ -98,7 +98,9 @@ def run_classifier(oclassi: OnlineEMGClassifier, save_path: str, lock: Lock):
                 )
                 prediction = values[np.argmax(counts)]
             message = f"{prediction} {time_stamp}"
-            # print(message)
+
+            # print(message
+            time.sleep(0.003)
             oclassi.sock.sendto(message.encode(), (oclassi.ip, oclassi.port))
 
             if oclassi.std_out:
