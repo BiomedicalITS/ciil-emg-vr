@@ -66,11 +66,9 @@ class Game:
             print(f"Received: {unity_packet.decode()} from {addr}")
             if unity_packet.decode() == "READY":
                 # global_timer = time.perf_counter()
-                unity_sock.sendto(
-                    self.config.paths.get_experiment_dir().encode(),
-                    addr,
-                )
-                print(f"Sent: {self.config.paths.get_experiment_dir()} to {addr}")
+                logs_path = f"{os.getcwd()}/{self.config.paths.get_experiment_dir()}"
+                unity_sock.sendto(logs_path.encode(), addr)
+                print(f"Sent: {logs_path} to {addr}")
                 time.sleep(1)
                 unity_sock.close()
                 break
