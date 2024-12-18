@@ -36,7 +36,7 @@ def main(subject_id, sensor, features, step, adaptation, sample_data):
             config.reps,
             config.rep_time,
         )
-    elif config.stage == ExperimentStage.SG_TEST:
+    elif config.stage == ExperimentStage.SG_PRE_TEST:
         config.paths.test = config.paths.test.replace("test", "pre_test")
         results = models.main_test_nn(
             config.model,
@@ -79,12 +79,12 @@ if __name__ == "__main__":
 
     # steps = [ExperimentStage.FAMILIARIZATION]
     # steps = [ExperimentStage.SG_TRAIN, ExperimentStage.SG_TEST]
-    # steps = [ExperimentStage.SG_TEST]
-    steps = [ExperimentStage.GAME]
+    steps = [ExperimentStage.SG_PRE_TEST]
+    # steps = [ExperimentStage.GAME]
     # steps = [ExperimentStage.SG_POST_TEST]
 
     adaptation = True
-    sample_data = True
+    sample_data = False
 
     for step in steps:
         print(f"Running step {step}")

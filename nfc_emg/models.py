@@ -720,7 +720,7 @@ def main_test_nn(
     preds, _ = classifier.run(data)
 
     om = OfflineMetrics()
-    metrics = ["CA", "AER", "REJ_RATE", "CONF_MAT"]
+    metrics = ["CA", "AER", "INS", "REJ_RATE", "CONF_MAT"]
     results = om.extract_offline_metrics(metrics, labels, preds, idle_cid)
 
     for key in results:

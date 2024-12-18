@@ -14,7 +14,7 @@ from nfc_emg import models
 class ExperimentStage(IntEnum):
     FAMILIARIZATION = 0
     SG_TRAIN = 1
-    SG_TEST = 2
+    SG_PRE_TEST = 2
     GAME = 3
     SG_POST_TEST = 4
     VISUALIZE_CLASSIFIER = 5
