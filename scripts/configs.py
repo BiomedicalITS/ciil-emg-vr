@@ -7,12 +7,14 @@ try:
 
     __SEED = 310
     seed_everything(__SEED)
-
     ACCELERATOR = (
         "cuda"
         if torch.cuda.is_available()
         else "mps" if torch.backends.mps.is_available() else "cpu"
     )
+    if ACCELERATOR == "cuda":
+        torch.set_float32_matmul_precision("high")
+
 except ImportError:
     pass
 
@@ -24,7 +26,7 @@ FINE_SET = [1, 2, 3, 8, 14, 26, 30]
 
 _fe = FeatureExtractor()
 FEATURES = _fe.get_feature_groups()["TDPSD"]
-
+# FEATURES = ["MAV"]
 SUBJECT = "vr"
 SENSOR = EmgSensorType.BioArmband
 

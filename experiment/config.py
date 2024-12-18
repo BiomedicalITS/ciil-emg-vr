@@ -14,7 +14,7 @@ from nfc_emg import models
 class ExperimentStage(IntEnum):
     FAMILIARIZATION = 0
     SG_TRAIN = 1
-    SG_TEST = 2
+    SG_PRE_TEST = 2
     GAME = 3
     SG_POST_TEST = 4
     VISUALIZE_CLASSIFIER = 5
@@ -50,6 +50,12 @@ class Config:
 
         if self.relabel_method == "LabelSpreading":
             os.environ["OMP_NUM_THREADS"] = "1"
+
+        if not torch.cuda.is_available():
+            print("========================================")
+            print("CRITICAL WARNING: CUDA is not available.")
+            input("Press any key to continue....")
+            print("========================================")
 
         self.get_path_parameters()
         self.get_feature_parameters()
@@ -90,6 +96,7 @@ class Config:
             if torch.cuda.is_available()
             else "mps" if torch.backends.mps.is_available() else "cpu"
         )
+        torch.set_float32_matmul_precision("high")
 
         if (
             self.stage == ExperimentStage.SG_TRAIN

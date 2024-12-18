@@ -316,7 +316,7 @@ def save_eval_results(results: dict, path: str):
     """
     with open(path, "w") as f:
         tmp_results = results.copy()
-        tmp_results["CONF_MAT"] = 0
+        tmp_results["CONF_MAT"] = tmp_results["CONF_MAT"].tolist()
         json.dump(tmp_results, f, indent=4)
     return tmp_results
 

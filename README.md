@@ -12,7 +12,10 @@ source .venv/bin/activate
 python3 -m pip install -e ./
 ```
 
+**DO NOT FORGET TO INSTALL PYTORCH WITH CUDA SUPPORT IF YOU HAVE A GPU**. It will **not** be installed automatically.
+
 ## Usage
+
 
 Only the `GAME` step requires the VR game. Normally, you'll want to execute them one at a time sequentially. It's tedious.
 

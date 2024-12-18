@@ -2,9 +2,9 @@ import socket
 import select
 import numpy as np
 import time
-import traceback
 import logging
 import os
+from collections import deque
 
 import threading
 from threading import Lock
@@ -32,6 +32,9 @@ def csv_reader(file_path: str, array: np.ndarray, lock: Lock):
     """
     array_len, array_width = array.shape
 
+    window_queue = deque(maxlen=array_len)
+    lines_read = 0
+
     # Wait for CSV file to be created
     file_dir = "/".join(file_path.split("/")[:-1])
     file_name = file_path.split("/")[-1]
@@ -44,35 +47,33 @@ def csv_reader(file_path: str, array: np.ndarray, lock: Lock):
         while True:
             lines = c.readlines()
             if len(lines) == 0:
-                # time.sleep(0.01)
                 continue
+            lines_read += len(lines)
 
-            # print(f"csv_reader: Read {len(lines)} lines from {file_path}")
+            new_array = np.fromstring("".join(lines).replace("\n", ","), sep=",")
+            # print(
+            #     f"({time.time():.4f}) csv_reader: Read {len(lines)} new lines (total {lines_read}) with shape: {new_array.shape}"
+            # )
+            new_array = new_array.reshape(-1, array_width)
+            window_queue.extend(new_array)
 
-            new_array = np.fromstring(
-                "".join(lines).replace("\n", ","), sep=","
-            ).reshape(-1, array_width)
-
-            if len(new_array) < array_len:
-                new_array = np.vstack((array, new_array))
-
-            lock.acquire()
-            array[:] = new_array[-array_len:]
-            lock.release()
+            if len(window_queue) >= array_len:
+                # print("csv_reader: Wrote new values to array")
+                with lock:
+                    array[:] = np.array(window_queue)
 
 
-def worker(
+def run_memory_manager(
     config: Config,
-    in_port: int,
     unity_in_port: int,
-    out_port: int,
+    server_port: int,
 ):
     """
     The MemoryManager worker is a UDP server responsible for receiving context from Unity and receiving state from the AdaptationManager.
 
-    It parses said context, retrieves the corresponding data and predictions and generates the adaptation data.
+    It parses said Unity context, finds the corresponding data window and prediction and re-computes the features.
 
-    After generating new adaptation data, it is written to disk and a UDP message is sent via "out_port".
+    After generating new adaptation data, it is written to disk and a UDP message is sent via "out_port" to tell the AdaptationManager.
 
     The message is simply "WROTE"
 
@@ -91,12 +92,10 @@ def worker(
     fs.setLevel(logging.INFO)
     logger.addHandler(fs)
 
-    # receive messages from the adaptation manager
-    in_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    in_sock.bind(("localhost", in_port))
+    manager_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    manager_sock.bind(("localhost", server_port))
 
-    # send messages to this port (input of adaptManager)
-    out_port = ("localhost", out_port)
+    adapt_manager_addr = None
 
     # receive context from unity
     unity_in_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -128,7 +127,7 @@ def worker(
 
     """
     Shared between worker and csv reader thread. CSV reader reads data from file and writes it to this array.
-    CSV reader also takes care of rolling the data, meaning the newest data is always at the end of the array.
+    CSV reader also takes care of rolling the data: the newest data is at the end of the array.
     """
     live_data = np.zeros(
         (
@@ -137,7 +136,7 @@ def worker(
         )
     )
     live_data_lock = Lock()
-    threading.Thread(
+    csv_t = threading.Thread(
         target=csv_reader,
         args=(
             config.paths.get_live() + "preds.csv",
@@ -145,7 +144,8 @@ def worker(
             live_data_lock,
         ),
         daemon=True,
-    ).start()
+    )
+    csv_t.start()
 
     start_time = time.perf_counter()
 
@@ -157,33 +157,39 @@ def worker(
     done = False
     while not done:
         try:
-            ready_to_read, _, _ = select.select([in_sock, unity_in_sock], [], [], 0)
+            if not csv_t.is_alive():
+                logger.error("NN: CSV THREAD DEADDDDDDDDDDd")
+                raise Exception("CSV reader thread died")
+
+            ready_to_read, _, _ = select.select([manager_sock, unity_in_sock], [], [])
 
             if len(ready_to_read) == 0:
-                time.sleep(0.01)
+                time.sleep(0.005)
                 continue
 
             for sock in ready_to_read:
                 sock: socket.socket
-                udp_packet = sock.recv(1024).decode()
+                udp_packet, address = sock.recvfrom(1024)
+                udp_packet = udp_packet.decode()
+                logger.info(f"MM: received {udp_packet} from {address}")
                 if sock == unity_in_sock:
+                    # Unity sends "Q" when it shuts down / is done
                     if udp_packet == "Q":
-                        # Unity sends "Q" when it shuts down / is done
                         done = True
-                        in_sock.sendto(b"STOP", out_port)
+                        manager_sock.sendto(b"STOP", adapt_manager_addr)
                         del_t = time.perf_counter() - start_time
                         logger.info(f"MM: done flag at {del_t:.2f} s")
                         continue
+                    # ensure context packet
                     elif not (udp_packet.startswith("P") or udp_packet.startswith("N")):
-                        # ensure context packet
                         continue
 
                     logger.info(f"MM: {udp_packet}")
 
-                    live_data_lock.acquire()
-                    adap_data = live_data.copy()
-                    live_data_lock.release()
+                    with live_data_lock:
+                        adap_data = live_data.copy()
 
+                    # Timestamp is only 0 if the array is not full [timestamp, prediction, *data]
                     if 0 in adap_data[:, 0]:
                         logger.info("MM: waiting for more CSV data")
                         continue
@@ -211,26 +217,38 @@ def worker(
                         adap_data,
                         adap_label,
                         adap_possibilities,
-                        adap_type,
+                        adap_was_pred_good,
                         timestamp,
                     ) = result
 
                     if len(adap_data) != len(adap_label):
+                        logger.error(
+                            "MM: Adaptation data and adaptation label length mismatch"
+                        )
                         continue
 
                     memory.add_memories(
                         adap_data,
                         adap_label,
                         adap_possibilities,
-                        adap_type,
+                        adap_was_pred_good,
                         timestamp,
                     )
                     logger.info(f"MM: memory len {len(memory)}")
 
-                if sock == in_sock or is_adapt_mngr_waiting:
+                if sock == manager_sock or is_adapt_mngr_waiting:
+                    if adapt_manager_addr is None:
+                        adapt_manager_addr = address
+                        logger.info(
+                            f"MM: Adaptation manager address set to {adapt_manager_addr}"
+                        )
+
                     if udp_packet == "WAITING":
                         # Training pass done so update model
                         is_adapt_mngr_waiting = True
+                    elif udp_packet == "STOP":
+                        logger.info("MM: received STOP from AdaptManager")
+                        return
 
                     if not is_adapt_mngr_waiting:
                         continue
@@ -249,11 +267,11 @@ def worker(
                     num_written += 1
                     memory = Memory()
 
-                    in_sock.sendto(b"WROTE", out_port)
+                    manager_sock.sendto(b"WROTE", adapt_manager_addr)
                     is_adapt_mngr_waiting = False
-        except Exception:
-            in_sock.sendto(b"STOP", out_port)
-            logger.error("MM: " + traceback.format_exc())
+        except Exception as e:
+            logger.error(f"MM: {e}")
+            manager_sock.sendto(b"STOP", adapt_manager_addr)
             return
 
 
@@ -280,8 +298,8 @@ def decode_unity(
     """
     # Extract context...
     message_parts = packet.split(" ")
-    outcome = message_parts[0]
-    timestamp = float(message_parts[1])
+    outcome = message_parts[0]  # "P" for positive, "N" for negative
+    timestamp = float(message_parts[1])  # timestamp sent from classifier
     possibilities = [
         unity_to_cid_map[p] for p in message_parts[2:] if p in unity_to_cid_map
     ]

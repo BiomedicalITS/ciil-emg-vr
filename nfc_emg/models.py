@@ -178,7 +178,7 @@ class EmgCNN(L.LightningModule):
 
         self.train()
         optim = self.configure_optimizers()
-        #for _ in range(5):
+        # for _ in range(5):
         for i, batch in enumerate(train_dl):
             if len(batch[0]) < 2:
                 continue
@@ -637,6 +637,7 @@ def train_nn(
         train_data.astype(np.float32), train_labels, 64, True
     )
 
+    val_loader = None
     if len(test_reps) > 0:
         val_win, val_labels = datasets.prepare_data(val_odh, sensor)
         val_data = FeatureExtractor().extract_features(features, val_win, array=True)
@@ -713,13 +714,13 @@ def main_test_nn(
 
     classifier = EMGClassifier()
     classifier.classifier = model.eval()
-    classifier.add_majority_vote(sensor.maj_vote_n)
+    # classifier.add_majority_vote(sensor.maj_vote_n)
     # classifier.add_rejection(0.9)
 
     preds, _ = classifier.run(data)
 
     om = OfflineMetrics()
-    metrics = ["CA", "AER", "REJ_RATE", "CONF_MAT"]
+    metrics = ["CA", "AER", "INS", "REJ_RATE", "CONF_MAT"]
     results = om.extract_offline_metrics(metrics, labels, preds, idle_cid)
 
     for key in results:
