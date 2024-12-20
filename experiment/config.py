@@ -69,6 +69,7 @@ class Config:
         )
         self.paths.gestures = "data/gestures/"
 
+        # The steps before game are common so we can work in the no_adap dir first, and then copy stuff when >= game
         if self.stage >= ExperimentStage.GAME and self.adaptation:
             src = self.paths.get_experiment_dir()
             self.paths.trial = "adap"
@@ -94,7 +95,9 @@ class Config:
         self.accelerator = (
             "cuda"
             if torch.cuda.is_available()
-            else "mps" if torch.backends.mps.is_available() else "cpu"
+            else "mps"
+            if torch.backends.mps.is_available()
+            else "cpu"
         )
         torch.set_float32_matmul_precision("high")
 

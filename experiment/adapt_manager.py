@@ -162,5 +162,6 @@ def run_adaptation_manager(
             logger.error(f"AM: {e}")
             manager_sock.sendto("STOP".encode(), mem_manager_addr)
             break
+    manager_sock.sendto("STOP".encode(), mem_manager_addr)
     memory.write(memory_dir, 1000)
     logger.info("AM: finished")

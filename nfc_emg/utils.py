@@ -321,7 +321,7 @@ def save_eval_results(results: dict, path: str):
     return tmp_results
 
 
-def show_conf_mat(results: dict, paths: NfcPaths, gesture_ids: list):
+def get_conf_mat(results: dict, paths: NfcPaths, gesture_ids: list):
     """
     Show confusion matrix from results returned from LibEMG OfflineMetrics
     """
@@ -329,9 +329,9 @@ def show_conf_mat(results: dict, paths: NfcPaths, gesture_ids: list):
     test_gesture_names = get_name_from_gid(
         paths.gestures, paths.get_train(), gesture_ids
     )
-    ConfusionMatrixDisplay(conf_mat, display_labels=test_gesture_names).plot()
+    fig = ConfusionMatrixDisplay(conf_mat, display_labels=test_gesture_names).plot()
     plt.xticks(rotation=30)
-    plt.show()
+    return fig
 
 
 if __name__ == "__main__":

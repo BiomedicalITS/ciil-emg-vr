@@ -1,4 +1,5 @@
 from lightning.pytorch import seed_everything
+import matplotlib.pyplot as plt
 
 from nfc_emg import models, utils
 from nfc_emg.sensors import EmgSensorType
@@ -49,7 +50,8 @@ def main(subject_id, sensor, features, step, adaptation, sample_data):
         )
         results_file = config.paths.get_results().replace(".csv", "_pre.json")
         utils.save_eval_results(results, results_file)
-        utils.show_conf_mat(results, config.paths, config.gesture_ids)
+        utils.get_conf_mat(results, config.paths, config.gesture_ids)
+        plt.show()
     elif config.stage == ExperimentStage.GAME:
         config.paths.set_model("model_post")
         game = Game(config)
@@ -67,27 +69,35 @@ def main(subject_id, sensor, features, step, adaptation, sample_data):
         )
         results_file = config.paths.get_results().replace(".csv", "_post.json")
         utils.save_eval_results(results, results_file)
-        utils.show_conf_mat(results, config.paths, config.gesture_ids)
+        utils.get_conf_mat(results, config.paths, config.gesture_ids)
+        plt.show()
 
 
 if __name__ == "__main__":
     seed_everything(310)
+    # features = "HTD"
     features = "TDPSD"
-
-    subject = 0
     sensor = EmgSensorType.BioArmband
 
+    subjects = [1, 2, 3, 4, 5, 6, 7, 8]
+    subjects = [0]
+
     # steps = [ExperimentStage.FAMILIARIZATION]
-    # steps = [ExperimentStage.SG_TRAIN, ExperimentStage.SG_TEST]
-    steps = [ExperimentStage.SG_PRE_TEST]
-    # steps = [ExperimentStage.GAME]
+    # steps = [ExperimentStage.SG_TRAIN, ExperimentStage.SG_PRE_TEST]
+    # steps = [ExperimentStage.SG_PRE_TEST]
+    steps = [ExperimentStage.GAME]
     # steps = [ExperimentStage.SG_POST_TEST]
+    # steps = [ExperimentStage.SG_PRE_TEST, ExperimentStage.SG_POST_TEST]
 
     adaptation = True
     sample_data = False
 
-    for step in steps:
-        print(f"Running step {step}")
-        main(subject, sensor, features, step, adaptation, sample_data)
+    for subject in subjects:
+        for step in steps:
+            print("=" * 65)
+            print(f"|| Running {step=} for {subject=} ||")
+            print("=" * 65)
+
+            main(subject, sensor, features, step, adaptation, sample_data)
 
     print("Exiting experiment main thread.")

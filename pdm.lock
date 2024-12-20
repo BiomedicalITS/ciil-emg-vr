@@ -4,8 +4,8 @@
 [metadata]
 groups = ["default"]
 strategy = ["cross_platform", "inherit_metadata"]
-lock_version = "4.4.2"
-content_hash = "sha256:5a27f0145770cb7650b4125edf6a946596ad3bbe9d35b32436512acb4ac17a18"
+lock_version = "4.4.1"
+content_hash = "sha256:77cd6fed8abe5ef570e4f3a13d14b243898e80871b9a0ebac77e21a3ed15787a"
 
 [[package]]
 name = "aiohttp"
@@ -746,8 +746,8 @@ files = [
 name = "libemg"
 version = "0.0.3"
 git = "https://github.com/gabrielpgagne/libemg"
-ref = "main"
-revision = "5fee551978b0c2a23e0d7b24677d821ccee1b08e"
+ref = "self-supervised"
+revision = "0f192aa0bad04ad78b048c5e7a3d24323adf18b3"
 summary = "LibEMG - Myoelectric Control Library"
 groups = ["default"]
 dependencies = [
@@ -1848,6 +1848,22 @@ groups = ["default"]
 files = [
     {file = "setuptools-70.3.0-py3-none-any.whl", hash = "sha256:fe384da74336c398e0d956d1cae0669bc02eed936cdb1d49b57de1990dc11ffc"},
     {file = "setuptools-70.3.0.tar.gz", hash = "sha256:f171bab1dfbc86b132997f26a119f6056a57950d058587841a0082e8830f9dc5"},
+]
+
+[[package]]
+name = "sifi-bridge-py"
+version = "1.2.3"
+requires_python = "<3.13,>=3.9"
+summary = "Python bindings over the SiFi Bridge tool."
+groups = ["default"]
+dependencies = [
+    "numpy",
+    "requests>=2.32.3",
+    "semantic-version>=2.10.0",
+]
+files = [
+    {file = "sifi_bridge_py-1.2.3-py3-none-any.whl", hash = "sha256:ffcccd87967c2e18d690d5d469491b76a98b069d27b8e732a895da394e560339"},
+    {file = "sifi_bridge_py-1.2.3.tar.gz", hash = "sha256:dfe434696b7f9dc9e029e072e8170e1bcdf229e5884e23a83ed44f6e45396eaa"},
 ]
 
 [[package]]

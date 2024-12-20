@@ -14,6 +14,7 @@ dependencies = [
     "emager-py @ git+https://github.com/SBIOML/emager-py@63a6a602d7aa904e83f41d18b142d3ef4357792b",
     "libemg @ git+https://github.com/gabrielpgagne/libemg@self-supervised",
     "torch>=2.0.0",
+    "sifi-bridge-py>=1.2.3",
 ]
 requires-python = "<3.13,>=3.10"
 readme = "README.md"

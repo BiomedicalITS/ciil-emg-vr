@@ -40,12 +40,14 @@ def run_classifier(oclassi: OnlineEMGClassifier, save_path: str, lock: Lock):
             data = oclassi._get_data_helper()
 
             # Extract window and predict sample
+            # (n_windows, n_emg_ch, ws)
             window = get_windows(
                 data[-oclassi.window_size :][:],
                 oclassi.window_size,
-                oclassi.window_size,
+                oclassi.window_size,  # why???
             )
 
+            # dict: {feature_name: np.array of shape (n_windows, n_features)}
             features = fe.extract_features(
                 oclassi.features, window, oclassi.classifier.feature_params
             )

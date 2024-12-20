@@ -158,7 +158,7 @@ def run_memory_manager(
     while not done:
         try:
             if not csv_t.is_alive():
-                logger.error("NN: CSV THREAD DEADDDDDDDDDDd")
+                logger.error("MM: CSV reader thread dead")
                 raise Exception("CSV reader thread died")
 
             ready_to_read, _, _ = select.select([manager_sock, unity_in_sock], [], [])
