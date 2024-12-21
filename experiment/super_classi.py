@@ -23,7 +23,6 @@ def run_classifier(oclassi: OnlineEMGClassifier, save_path: str, lock: Lock):
     - Saves the predictions to a file and sends it to its UDP socket.
     """
     print("SuperClassifier is started!")
-    preds_count = 0
     fe = FeatureExtractor()
     oclassi.raw_data.reset_emg()
     with open(save_path, "w", newline="") as csvfile:
@@ -49,7 +48,7 @@ def run_classifier(oclassi: OnlineEMGClassifier, save_path: str, lock: Lock):
 
             # dict: {feature_name: np.array of shape (n_windows, n_features)}
             features = fe.extract_features(
-                oclassi.features, window, oclassi.classifier.feature_params
+                oclassi.features, window, oclassi.classifier.feature_params, array=True
             )
 
             # If extracted features has an error - give error message
@@ -58,7 +57,8 @@ def run_classifier(oclassi: OnlineEMGClassifier, save_path: str, lock: Lock):
                     oclassi.window_size, oclassi.window_increment
                 )
                 continue
-            classifier_input = oclassi._format_data_sample(features)
+            # classifier_input = oclassi._format_data_sample(features)
+            classifier_input = features  # test
 
             oclassi.raw_data.adjust_increment(
                 oclassi.window_size, oclassi.window_increment
@@ -76,8 +76,7 @@ def run_classifier(oclassi: OnlineEMGClassifier, save_path: str, lock: Lock):
             probability = probability[0]
 
             # Don't take into account post-processing for csv
-            preds_count += 1
-            newline = [time_stamp, prediction] + window.flatten().tolist()
+            newline = [time_stamp, prediction] + features.flatten().tolist()
             writer.writerow(newline)
             csvfile.flush()
 

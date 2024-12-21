@@ -180,7 +180,7 @@ def load_all_model_eval_metrics(
     pre: bool,
     sensor: EmgSensorType = EmgSensorType.BioArmband,
     features: str | list = "TDPSD",
-):
+) -> tuple[list[SubjectResults], list[dict]]:
     stage = ExperimentStage.SG_PRE_TEST if pre else ExperimentStage.SG_POST_TEST
     subjects = list(filter(lambda d: d.isnumeric(), os.listdir("data/")))
     configs = []
@@ -234,13 +234,14 @@ def main():
     sr, results_subj = load_model_eval_metrics(
         subject, sensor, features, stage, adaptation
     )
-
     # ts, preds, feats = sr.load_predictions()
-    memory = sr.load_memory(1000)
-    print(
-        "Accuracy:",
-        100 * memory.experience_outcome.count("P") / len(memory.experience_outcome),
-    )
+
+    srs, _ = load_all_model_eval_metrics(True, False)
+    for sr in srs:
+        memory = sr.load_memory(1000)
+        print(
+            f"P{sr.config.subject_id} Accuracy: {100 * memory.experience_outcome.count('P') / len(memory.experience_outcome)}"
+        )
 
     # sr.get_conf_mat()
     # sr.set_stage(ExperimentStage.SG_POST_TEST)

@@ -11,7 +11,7 @@ if __name__ == "__main__":
     possibilities = "H1 H2"  # set the simulated object possibilities here
 
     cid_to_name = utils.map_cid_to_ordered_name(
-        "data/gestures/", "data/0/bio/adap/train/"
+        "data/gestures/", "data/4/bio/adap/train/"
     )
     print(cid_to_name)
 

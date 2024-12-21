@@ -1,5 +1,8 @@
+from cProfile import label
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import logging as log
 
 
@@ -30,6 +33,56 @@ def get_avg_prediction_dt():
             dt[(subject, adaptation)] = np.mean(np.diff(ts)).item(0)
             log.info(f"dt {dt[(subject, adaptation)]}")
     return dt
+
+
+def pointplot_pre_post(sensor=EmgSensorType.BioArmband, features="TDPSD"):
+    """Create a boxplot figure with three boxes: initial test, post-test without adaptation, post-test with adaptation.
+
+    Args:
+        sensor (_type_, optional): Sensor used. Defaults to EmgSensorType.BioArmband.
+        features (str, optional): Feature set used. Defaults to "TDPSD".
+
+    Returns:
+        tuple: fig, ax, stats
+    """
+    stats = []
+    labels = ["Initial", "Post"]
+    for i, (adap, pre) in enumerate([(False, True), (False, False), (True, False)]):
+        _, results = analysis.load_all_model_eval_metrics(adap, pre, sensor, features)
+        ca = analysis.get_overall_eval_metrics(results)["CA"]
+        ca = [c * 100 for c in ca]
+
+        stats.append(ca)
+
+    # TODO participant # is broken like this
+    fig, ax = plt.subplots(figsize=(16, 9))
+    colors = list(mcolors.TABLEAU_COLORS.values())
+    legend = []
+    for subject in range(len(stats[0])):
+        legend.append(f"Participant {subject}")
+        color = colors[subject % len(colors)]
+        ax.plot(
+            labels,
+            [stats[0][subject], stats[1][subject]],
+            marker="o",
+            label=f"P{subject}, no adaptation",
+            # linestyle="dashed",
+            color=color,
+        )
+        ax.plot(
+            labels,
+            [stats[0][subject], stats[2][subject]],
+            marker="o",
+            linestyle="dashed",
+            label=f"P{subject}, with adaptation",
+            color=color,
+        )
+    ax.legend()
+    ax.set_xlabel("Test case")
+    ax.set_ylabel("Classification Accuracy (%)")
+    ax.grid(True)
+
+    return fig, ax, stats
 
 
 def boxplot_pre_post(sensor=EmgSensorType.BioArmband, features="TDPSD"):
@@ -105,6 +158,7 @@ def confmat_pre_post(sensor=EmgSensorType.BioArmband, features="TDPSD"):
 
 
 if __name__ == "__main__":
-    boxplot_pre_post()
-    confmat_pre_post()
+    pointplot_pre_post()
+    # boxplot_pre_post()
+    # confmat_pre_post()
     plt.show()

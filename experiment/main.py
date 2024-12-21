@@ -80,7 +80,7 @@ if __name__ == "__main__":
     sensor = EmgSensorType.BioArmband
 
     subjects = [1, 2, 3, 4, 5, 6, 7, 8]
-    subjects = [0]
+    subjects = [4]
 
     # steps = [ExperimentStage.FAMILIARIZATION]
     # steps = [ExperimentStage.SG_TRAIN, ExperimentStage.SG_PRE_TEST]
