@@ -76,7 +76,7 @@ def run_classifier(oclassi: OnlineEMGClassifier, save_path: str, lock: Lock):
             probability = probability[0]
 
             # Don't take into account post-processing for csv
-            newline = [time_stamp, prediction] + features.flatten().tolist()
+            newline = [time_stamp, prediction] + window.flatten().tolist()
             writer.writerow(newline)
             csvfile.flush()
 

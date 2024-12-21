@@ -11,7 +11,7 @@ if __name__ == "__main__":
     possibilities = "H1 H2"  # set the simulated object possibilities here
 
     cid_to_name = utils.map_cid_to_ordered_name(
-        "data/gestures/", "data/4/bio/adap/train/"
+        "data/gestures/", "data/0/bio/adap/train/"
     )
     print(cid_to_name)
 
@@ -25,7 +25,7 @@ if __name__ == "__main__":
                 output_sock.sendto(b"READY", out_addr)
                 while True:
                     classification = input_sock.recv(1024).decode().split(" ")
-                    time.sleep(0.01)  # Dumb way to give time to load in new csv data
+                    time.sleep(0.01)  # Simulate 100 Hz game
 
                     pred = int(classification[0])
                     timestamp = classification[1]
