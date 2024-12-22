@@ -96,6 +96,11 @@ class SubjectResults:
         return Memory().from_file(self.config.paths.get_memory(), mem_id)
 
     def load_predictions(self):
+        """Load predictions from the subject's predictions file.
+
+        Returns:
+            tuple: timestamps, predictions, windows
+        """
         arr = np.loadtxt(self.config.paths.get_live() + "preds.csv", delimiter=",")
         log.info(f"Predictions file has shape {arr.shape}")
         timestamps = arr[:, 0]
@@ -225,7 +230,7 @@ def get_subjects(base: str):
 
 
 def main():
-    subject = 1
+    subject = 8
     sensor = EmgSensorType.BioArmband
     features = "TDPSD"
     adaptation = True
@@ -235,12 +240,26 @@ def main():
         subject, sensor, features, stage, adaptation
     )
     # ts, preds, feats = sr.load_predictions()
-
-    srs, _ = load_all_model_eval_metrics(True, False)
+    memory0 = sr.load_memory(0)
+    memory = sr.load_memory(1000)
+    print(len(memory0), len(memory))
+    outcomes = memory.experience_outcome[len(memory0) :]
+    print(
+        f"P{sr.config.subject_id} Accuracy: {100 * outcomes.count('P') / len(outcomes)} ({len(outcomes)})"
+    )
+    print(
+        f"dt between memory {np.mean(np.diff(memory.experience_timestamps[len(memory0):]))}"
+    )
+    exit()
+    srs, _ = load_all_model_eval_metrics(False, False)
     for sr in srs:
+        # TODO ignore initial training data
+        memory0 = sr.load_memory(0)
         memory = sr.load_memory(1000)
+        print(len(memory0), len(memory))
+        outcomes = memory.experience_outcome[len(memory0) :]
         print(
-            f"P{sr.config.subject_id} Accuracy: {100 * memory.experience_outcome.count('P') / len(memory.experience_outcome)}"
+            f"P{sr.config.subject_id} Accuracy: {100 * outcomes.count('P') / len(outcomes)} ({len(outcomes)})"
         )
 
     # sr.get_conf_mat()
