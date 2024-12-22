@@ -102,33 +102,30 @@ def run_memory_manager(
     unity_in_sock.bind(("localhost", unity_in_port))
 
     # Create some initial memory data
-    base_odh = datasets.get_offline_datahandler(
-        data_dir,
-        utils.get_cid_from_gid(config.paths.gestures, data_dir, config.gesture_ids),
-        utils.get_reps(data_dir),
-    )
-    base_win, base_labels = datasets.prepare_data(base_odh, config.sensor)
-    base_features = FeatureExtractor().extract_features(
-        config.features, base_win, array=True
-    )
-    memory = Memory().add_memories(
-        base_features,
-        np.eye(len(config.gesture_ids))[base_labels],
-        np.zeros((len(base_labels), 3)),
-        ["P"] * len(base_labels),
-        [0.0] * len(base_labels),
-    )
+    # base_odh = datasets.get_offline_datahandler(
+    #     data_dir,
+    #     utils.get_cid_from_gid(config.paths.gestures, data_dir, config.gesture_ids),
+    #     utils.get_reps(data_dir),
+    # )
+    # base_win, base_labels = datasets.prepare_data(base_odh, config.sensor)
+    # base_features = FeatureExtractor().extract_features(
+    #     config.features, base_win, array=True
+    # )
+    # memory = Memory().add_memories(
+    #     base_features,
+    #     np.eye(len(config.gesture_ids))[base_labels], # one-hot encoded labels
+    #     np.zeros((len(base_labels), 3)),
+    #     ["P"] * len(base_labels), # offline data set as positive
+    #     [0.0] * len(base_labels), # offline data set as timestamp 0
+    # )
 
-    # memory = Memory()
+    memory = Memory()
 
     # runtime constants
     name_to_cid = reverse_dict(map_cid_to_name(config.paths.get_train()))
     unity_to_cid_map = {k: name_to_cid[v] for k, v in POSE_TO_NAME.items() if v != -1}
 
-    """
-    Shared between worker and csv reader thread. CSV reader reads data from file and writes it to this array.
-    CSV reader also takes care of rolling the data: the newest data is at the end of the array.
-    """
+    # Shared between worker and csv reader thread. CSV reader reads data from file and writes it to this array.
     live_data = np.zeros(
         (
             config.sensor.fs // config.sensor.window_increment,
@@ -136,6 +133,7 @@ def run_memory_manager(
         )
     )
     live_data_lock = Lock()
+
     csv_t = threading.Thread(
         target=csv_reader,
         args=(
@@ -260,11 +258,11 @@ def run_memory_manager(
                     t1 = time.perf_counter()
                     memory.write(memory_dir, num_written)
                     del_t = time.perf_counter() - t1
+                    num_written += 1
 
                     logger.info(
                         f"MM: write #{num_written} with len {len(memory)}, unfound: {total_samples_unfound}, WRITE TIME: {del_t:.2f} s"
                     )
-                    num_written += 1
                     memory = Memory()
 
                     manager_sock.sendto(b"WROTE", adapt_manager_addr)

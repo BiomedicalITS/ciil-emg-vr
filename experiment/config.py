@@ -28,22 +28,40 @@ class Config:
         features: str | list,
         stage: ExperimentStage,
         adaptation: bool = True,
+        powerline_notch_freq=60,
+        model_type="CNN",
+        negative_method="mixed",
+        relabel_method="none",
+        gesture_ids=(1, 2, 3, 4, 5, 8, 26, 30),
     ):
-        POWERLINE_NOTCH_FREQ = 60  # 50 for EU, 60 for NA
-        self.model_type = "CNN"  # Can be "CNN" or "MLP"
-        self.negative_method = "mixed"  # Can be "mixed" or "none"
-        self.relabel_method = "LabelSpreading"
-        self.gesture_ids = [1, 2, 3, 4, 5, 8, 26, 30]
+        """Create the config experiment.
 
-        self.stage = stage
+        Args:
+            subject_id (int): Subject ID
+            sensor_type (EmgSensorType): Sensor to use
+            features (str | list): Features to use, can be a list or a feature group string
+            stage (ExperimentStage): Stage of the experiment
+            adaptation (bool, optional): Enable adaptation. Defaults to True.
+            powerline_notch_freq (int, optional): Mains frequency. Defaults to 60.
+            model_type (str, optional): Model type to use, can be CNN or MLP. Defaults to "CNN".
+            negative_method (str, optional): Method to handle negative labels. Can be "mixed" or "none". Defaults to "mixed".
+            relabel_method (str, optional): Relabelling method. Can be "LabelSpreading" or "none". Defaults to "none".
+            gesture_ids (Iterable, optional): List of gesture IDs. Defaults to (1, 2, 3, 4, 5, 8, 26, 30).
+        """
         self.subject_id = subject_id
         self.sensor = EmgSensor(
             sensor_type,
-            notch_freq=POWERLINE_NOTCH_FREQ,
+            notch_freq=powerline_notch_freq,
             window_size_ms=200,
             window_inc_ms=50,
             majority_vote_ms=0,
         )
+        self.stage = stage
+
+        self.model_type = model_type
+        self.negative_method = negative_method
+        self.relabel_method = relabel_method
+        self.gesture_ids = gesture_ids
 
         self.adaptation = adaptation
         self.features = features  # Can be list of features OR feature group

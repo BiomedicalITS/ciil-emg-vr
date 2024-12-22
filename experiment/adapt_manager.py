@@ -2,7 +2,6 @@ import socket
 from threading import Lock
 import time
 import logging
-import traceback
 import copy
 import csv
 
@@ -91,7 +90,7 @@ def run_adaptation_manager(
                 f"AM: loaded memory {memory_id}, size {len(memory)}, load time: {del_t:.2f}s"
             )
 
-            if len(memory) < 150:
+            if len(memory) < 60:  # 2.0s of preds
                 logger.info(f"AM: memory len {len(memory)}. Skipped training")
                 time.sleep(1)
             elif config.adaptation:

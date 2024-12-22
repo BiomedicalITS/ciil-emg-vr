@@ -91,8 +91,12 @@ class SubjectResults:
         """Load a memory file from the subject's memory directory.
 
         Args:
-            mem_id (int): Memory ID. For the latest one, use 1000
+            mem_id (int): Memory ID. For the latest one, use -1
         """
+        if mem_id == -1:
+            mems = self.find_memory_ids()
+            mem_id = max(mems)
+
         return Memory().from_file(self.config.paths.get_memory(), mem_id)
 
     def load_predictions(self):
@@ -187,7 +191,7 @@ def load_all_model_eval_metrics(
     features: str | list = "TDPSD",
 ) -> tuple[list[SubjectResults], list[dict]]:
     stage = ExperimentStage.SG_PRE_TEST if pre else ExperimentStage.SG_POST_TEST
-    subjects = list(filter(lambda d: d.isnumeric(), os.listdir("data/")))
+    subjects = sorted(list(filter(lambda d: d.isnumeric(), os.listdir("data/"))))
     configs = []
     metrics = []
     for s in subjects:

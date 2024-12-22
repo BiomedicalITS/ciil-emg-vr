@@ -127,13 +127,20 @@ def pointplot_full(sensor=EmgSensorType.BioArmband, features="TDPSD"):
         for sr in srs:
             participants.append(sr.config.subject_id)
             mem0 = len(sr.load_memory(0))
-            mem = sr.load_memory(1000)
+            mem = sr.load_memory(-1)
             outcomes = mem.experience_outcome[mem0:]
-            if not adap:
-                within_acc_noadap.append(100 * outcomes.count("P") / len(outcomes))
-            else:
-                within_acc_adap.append(100 * outcomes.count("P") / len(outcomes))
 
+            try:
+                if not adap:
+                    within_acc_noadap.append(100 * outcomes.count("P") / len(outcomes))
+                else:
+                    within_acc_adap.append(100 * outcomes.count("P") / len(outcomes))
+            except:
+                print(f"Error in P{sr.config.subject_id}")
+                if not adap:
+                    within_acc_noadap.append(0)
+                else:
+                    within_acc_adap.append(0)
         stats.append(ca)
 
     labels = ["Initial", "Online", "Post"]
@@ -239,9 +246,9 @@ def confmat_pre_post(sensor=EmgSensorType.BioArmband, features="TDPSD"):
 
 if __name__ == "__main__":
     log.basicConfig(level=log.INFO)
-    print(get_avg_prediction_dt())
+    # print(get_avg_prediction_dt())
     # pointplot_pre_post()
-    # pointplot_full()
+    pointplot_full()
     # boxplot_pre_post()
     # confmat_pre_post()
     plt.show()

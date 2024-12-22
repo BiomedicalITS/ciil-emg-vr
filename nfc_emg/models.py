@@ -182,11 +182,10 @@ class EmgCNN(L.LightningModule):
         for i, batch in enumerate(train_dl):
             if len(batch[0]) < 2:
                 continue
+            optim.zero_grad()
             loss = self.training_step(batch, i, False)
-
             loss.backward()
             optim.step()
-            optim.zero_grad()
 
         self.eval()
         rets = {}

@@ -9,13 +9,26 @@ from familiarization import Familiarization
 from game import Game
 
 
-def main(subject_id, sensor, features, step, adaptation, sample_data):
+def main(
+    subject_id,
+    sensor,
+    features,
+    step,
+    adaptation,
+    sample_data,
+    negative_method,
+    relabel_method,
+    powerline_freq,
+):
     config = Config(
         subject_id=subject_id,
         sensor_type=sensor,
         features=features,
         stage=step,
         adaptation=adaptation,
+        negative_method=negative_method,
+        relabel_method=relabel_method,
+        powerline_notch_freq=powerline_freq,
     )
 
     if config.stage == ExperimentStage.FAMILIARIZATION:
@@ -75,8 +88,11 @@ def main(subject_id, sensor, features, step, adaptation, sample_data):
 
 if __name__ == "__main__":
     seed_everything(310)
+    negative_method = "mixed"  # mixed or none
+    relabel_method = "none"  # LabelSpreading or none
     features = "TDPSD"
     sensor = EmgSensorType.BioArmband
+    mains_freq = 60
 
     subjects = [1, 2, 3, 4, 5, 6, 7, 8]
     subjects = [0]
@@ -88,8 +104,8 @@ if __name__ == "__main__":
     # steps = [ExperimentStage.SG_POST_TEST]
     # steps = [ExperimentStage.SG_PRE_TEST, ExperimentStage.SG_POST_TEST]
 
-    adaptation = False
-    sample_data = False
+    param_1 = False
+    param_2 = False
 
     for subject in subjects:
         for step in steps:
@@ -98,6 +114,16 @@ if __name__ == "__main__":
             print(message)
             print("=" * len(message))
 
-            main(subject, sensor, features, step, adaptation, sample_data)
+            main(
+                subject,
+                sensor,
+                features,
+                step,
+                param_1,
+                param_2,
+                negative_method,
+                relabel_method,
+                mains_freq,
+            )
 
     print("Exiting experiment main thread.")
