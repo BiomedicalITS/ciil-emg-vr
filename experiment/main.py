@@ -97,14 +97,14 @@ if __name__ == "__main__":
     sample_data = True
 
     subjects = [1, 2, 3, 4, 5, 6, 7, 8]
-    subjects = [0]
+    subjects = [10]
 
     # steps = [ExperimentStage.FAMILIARIZATION]
     # steps = [ExperimentStage.SG_TRAIN, ExperimentStage.SG_PRE_TEST]
     # steps = [ExperimentStage.SG_PRE_TEST]
-    # steps = [ExperimentStage.GAME]
+    steps = [ExperimentStage.GAME]
     # steps = [ExperimentStage.GAME, ExperimentStage.SG_POST_TEST]
-    steps = [ExperimentStage.SG_POST_TEST]
+    # steps = [ExperimentStage.SG_POST_TEST]
     # steps = [ExperimentStage.SG_PRE_TEST, ExperimentStage.SG_POST_TEST]
 
     param_1 = True

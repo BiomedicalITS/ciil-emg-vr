@@ -1,8 +1,8 @@
 import os
-from shutil import copytree
 from enum import IntEnum
 import numpy as np
 import torch
+import shutil
 
 import libemg
 
@@ -92,7 +92,12 @@ class Config:
             src = self.paths.get_experiment_dir()
             self.paths.trial = "adap"
             if "adap" not in os.listdir(self.paths.base):
-                copytree(src, self.paths.get_experiment_dir())
+                dest = self.paths.get_experiment_dir()
+                os.mkdir(dest)
+                shutil.copy(src + "model.pth", dest + "model.pth")
+                shutil.copy(src + "results_pre.json", dest + "results_pre.json")
+                shutil.copytree(src + "train/", dest + "train/")
+                shutil.copytree(src + "pre_test/", dest + "pre_test/")
 
     def get_feature_parameters(self):
         if isinstance(self.features, str):

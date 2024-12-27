@@ -1,4 +1,5 @@
 import numpy as np
+import logging as log
 
 from sklearn.metrics import accuracy_score
 from sklearn.metrics.pairwise import cosine_similarity
@@ -572,7 +573,7 @@ def load_mlp(model_path: str):
     """
     Load a model checkpoint from path and return it, including the StandardScaler
     """
-    print(f"Loading model from {model_path}")
+    log.info(f"Loading MLP from {model_path}")
     chkpt = torch.load(model_path)
     s_dict = chkpt["model_state_dict"]
     n_input = s_dict["feature_extractor.1.weight"].shape[1]
@@ -587,7 +588,7 @@ def load_conv(model_path: str, num_channels: int, emg_shape: tuple):
     """
     Load a model checkpoint from path and return it, including the StandardScaler
     """
-    print(f"Loading model from {model_path}")
+    log.info(f"Loading CNN from {model_path}")
     chkpt = torch.load(model_path)
     s_dict = chkpt["model_state_dict"]
     n_classes = s_dict["classifier.weight"].shape[0]

@@ -1,9 +1,11 @@
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import logging as log
 
 
+from memory import Memory
 from nfc_emg.sensors import EmgSensorType
 from nfc_emg import utils
 
@@ -51,6 +53,97 @@ def get_avg_prediction_dt():
                 f"Prediction dt={1000*dt[(subject, adaptation)][0]:.3f} ms, Memory dt={1000*dt[(subject, adaptation)][1]:.3f} ms"
             )
     return dt
+
+
+def get_avg_completion_time():
+    """Get average time between predictions subject-wise. It is normal for memory time to be much longer.
+    This is because the classifier still outputs predictions even when there is not object within grasping distance.
+
+    Context is only sent back by Unity when an object is within grasping distance.
+
+    Returns:
+        dict: (subject, adaptation) -> (prediction dt, memory dt)
+    """
+    sensor = EmgSensorType.BioArmband
+    features = "TDPSD"
+    stage = ExperimentStage.GAME
+
+    dt = {
+        "Subject": [],
+        "Adaptation": [],
+        "Time": [],
+    }
+    for subject in analysis.get_subjects("data/"):
+        for adaptation in [False, True]:
+            log.info(f"Loading {subject=}, {adaptation=}")
+            sr = analysis.SubjectResults(
+                subject,
+                adaptation,
+                stage,
+                sensor,
+                features,
+            )
+            mems = sr.find_memory_ids()
+            mems.remove(0)
+            mems.remove(1000)
+
+            mem1 = sr.load_memory(mems[0])
+            memn = sr.load_memory(mems[-1])
+
+            # print(
+            #     np.min(mem1.experience_timestamps), np.max(memn.experience_timestamps)
+            # )
+
+            dt["Subject"].append(subject)
+            dt["Adaptation"].append(adaptation)
+            dt["Time"].append(
+                memn.experience_timestamps[-1] - mem1.experience_timestamps[0]
+            )
+
+    return pd.DataFrame(dt)
+
+
+def fix_memory_ts():
+    """Get average time between predictions subject-wise. It is normal for memory time to be much longer.
+    This is because the classifier still outputs predictions even when there is not object within grasping distance.
+
+    Context is only sent back by Unity when an object is within grasping distance.
+
+    Returns:
+        dict: (subject, adaptation) -> (prediction dt, memory dt)
+    """
+    sensor = EmgSensorType.BioArmband
+    features = "TDPSD"
+    stage = ExperimentStage.GAME
+
+    for subject in analysis.get_subjects("data/"):
+        for adaptation in [False, True]:
+            log.info(f"Loading {subject=}")
+            sr = analysis.SubjectResults(
+                subject,
+                adaptation,
+                stage,
+                sensor,
+                features,
+            )
+            mems = sr.find_memory_ids()
+            mems.remove(0)
+            mems.remove(1000)
+
+            for i in range(len(mems) - 1):
+                mem_valid = sr.load_memory(mems[i])
+                mem_under_test = sr.load_memory(mems[i + 1])
+
+                dt = (
+                    mem_under_test.experience_timestamps[-1]
+                    - mem_valid.experience_timestamps[0]
+                )
+
+                if dt < 0:
+                    print(
+                        f"P{subject}, {adaptation=}: valid adaptation memories end (inclusive) at ID {mems[i]}"
+                    )
+                    break
 
 
 def pointplot_pre_post(sensor=EmgSensorType.BioArmband, features="TDPSD"):
@@ -126,16 +219,18 @@ def pointplot_full(sensor=EmgSensorType.BioArmband, features="TDPSD"):
 
         for sr in srs:
             participants.append(sr.config.subject_id)
-            mem0 = len(sr.load_memory(0))
-            mem = sr.load_memory(-1)
-            outcomes = mem.experience_outcome[mem0:]
-
+            memory = Memory()
+            for mem in sr.find_memory_ids():
+                if mem == 0 or mem == 1000:
+                    continue
+                memory += sr.load_memory(mem)
+            outcomes = memory.experience_outcome
             try:
                 if not adap:
                     within_acc_noadap.append(100 * outcomes.count("P") / len(outcomes))
                 else:
                     within_acc_adap.append(100 * outcomes.count("P") / len(outcomes))
-            except:
+            except:  # noqa: E722
                 print(f"Error in P{sr.config.subject_id}")
                 if not adap:
                     within_acc_noadap.append(0)
@@ -215,6 +310,23 @@ def boxplot_pre_post(sensor=EmgSensorType.BioArmband, features="TDPSD"):
     for i, stat in enumerate(stats):
         bplot["boxes"][i].set_facecolor("lightblue")
 
+        tlx = load_tlx()
+        if i == 1:
+            tlx = tlx[tlx["Adaptation"] == "N"]
+        elif i == 2:
+            tlx = tlx[tlx["Adaptation"] == "Y"]
+        else:
+            continue
+
+        tlx.drop(columns=["Subject", "Adaptation", "Sensor"], inplace=True)
+
+        ax.text(
+            i + 1,
+            100.5,
+            f"NASA-TLX: {tlx.mean(None):.2f} ± {tlx.std().mean(None):.2f}",
+            ha="center",
+        )
+
     ax.set_xlabel("Test case")
     ax.set_ylabel("Classification Accuracy (%)")
     ax.grid(True)
@@ -244,11 +356,29 @@ def confmat_pre_post(sensor=EmgSensorType.BioArmband, features="TDPSD"):
     return figs
 
 
+def load_tlx(path: str = "data/nfc-emg-experiment - tlx.csv"):
+    tlx = pd.read_csv(path)
+    return tlx
+
+
 if __name__ == "__main__":
-    log.basicConfig(level=log.INFO)
+    # log.basicConfig(level=log.INFO)
+
+    # fix_memory_ts()
     # print(get_avg_prediction_dt())
+    print(get_avg_completion_time())
+
+    # tlx = load_tlx()
+    # tlx.drop(columns=["Subject", "Sensor"], inplace=True)
+    # tlx_adap = tlx[tlx["Adaptation"] == "Y"]
+    # tlx_adap.drop(columns=["Adaptation"], inplace=True)
+    # tlx_noadap = tlx[tlx["Adaptation"] == "N"]
+    # tlx_noadap.drop(columns=["Adaptation"], inplace=True)
+    # print(tlx_adap.mean())
+    # print(tlx_noadap.mean())
+
+    # pointplot_full()
     # pointplot_pre_post()
-    pointplot_full()
     # boxplot_pre_post()
     # confmat_pre_post()
     plt.show()

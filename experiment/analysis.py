@@ -85,7 +85,7 @@ class SubjectResults:
         mem_dir = self.config.paths.get_memory()
         files = os.listdir(mem_dir)
         memories = list(filter(lambda x: x.startswith("classifier_memory"), files))
-        return [int(mem.split("_")[-1].split(".")[0]) for mem in memories]
+        return sorted([int(mem.split("_")[-1].split(".")[0]) for mem in memories])
 
     def load_memory(self, mem_id: int):
         """Load a memory file from the subject's memory directory.
@@ -230,7 +230,7 @@ def get_subjects(base: str):
         list[int]: List of subject IDs.
     """
     subjects = list(filter(lambda d: d.isnumeric(), os.listdir(base)))
-    return [int(subject.split("/")[-1]) for subject in subjects]
+    return sorted([int(subject.split("/")[-1]) for subject in subjects])
 
 
 def main():

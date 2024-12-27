@@ -45,7 +45,6 @@ class Memory:
         return self.memories_stored
 
     def __add__(self, other_memory):
-        assert type(other_memory) == Memory
         if len(other_memory):
             if not len(self):
                 return other_memory
