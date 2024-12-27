@@ -102,24 +102,24 @@ def run_memory_manager(
     unity_in_sock.bind(("localhost", unity_in_port))
 
     # Create some initial memory data
-    # base_odh = datasets.get_offline_datahandler(
-    #     data_dir,
-    #     utils.get_cid_from_gid(config.paths.gestures, data_dir, config.gesture_ids),
-    #     utils.get_reps(data_dir),
-    # )
-    # base_win, base_labels = datasets.prepare_data(base_odh, config.sensor)
-    # base_features = FeatureExtractor().extract_features(
-    #     config.features, base_win, array=True
-    # )
-    # memory = Memory().add_memories(
-    #     base_features,
-    #     np.eye(len(config.gesture_ids))[base_labels], # one-hot encoded labels
-    #     np.zeros((len(base_labels), 3)),
-    #     ["P"] * len(base_labels), # offline data set as positive
-    #     [0.0] * len(base_labels), # offline data set as timestamp 0
-    # )
+    base_odh = datasets.get_offline_datahandler(
+        data_dir,
+        utils.get_cid_from_gid(config.paths.gestures, data_dir, config.gesture_ids),
+        utils.get_reps(data_dir),
+    )
+    base_win, base_labels = datasets.prepare_data(base_odh, config.sensor)
+    base_features = FeatureExtractor().extract_features(
+        config.features, base_win, array=True
+    )
+    memory = Memory().add_memories(
+        base_features,
+        np.eye(len(config.gesture_ids))[base_labels],  # one-hot encoded labels
+        np.zeros((len(base_labels), 3)),
+        ["P"] * len(base_labels),  # offline data set as positive
+        [0.0] * len(base_labels),  # offline data set as timestamp 0
+    )
 
-    memory = Memory()
+    # memory = Memory()
 
     # runtime constants
     name_to_cid = reverse_dict(map_cid_to_name(config.paths.get_train()))
