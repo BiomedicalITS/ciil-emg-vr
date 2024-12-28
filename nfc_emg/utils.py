@@ -13,6 +13,7 @@ from libemg.filtering import Filter
 
 from nfc_emg.paths import NfcPaths
 from nfc_emg.sensors import EmgSensor, EmgSensorType
+from nfc_emg.schemas import NAME_TO_SHORT
 
 
 def get_most_recent_checkpoint(lightning_logs_path: str = "./lightning_logs") -> str:
@@ -329,6 +330,9 @@ def get_conf_mat(results: dict, paths: NfcPaths, gesture_ids: list):
     test_gesture_names = get_name_from_gid(
         paths.gestures, paths.get_train(), gesture_ids
     )
+    for i, name in enumerate(test_gesture_names):
+        test_gesture_names[i] = NAME_TO_SHORT[name]
+
     fig = ConfusionMatrixDisplay(conf_mat, display_labels=test_gesture_names).plot()
     plt.xticks(rotation=30)
     return fig

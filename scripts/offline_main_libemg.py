@@ -16,25 +16,27 @@ import configs as g
 
 
 def __main():
-
     SAMPLE_DATA = False
     # SAMPLE_DATA = True
 
-    FEATURE_SETS = ["TDPSD", "MSWT", "LS4", "TDAR"]
+    # FEATURE_SETS = ["TDPSD", "MSWT", "LS4", "TDAR"]
+    FEATURE_SETS = ["TDPSD"]
     GESTURE_IDS = g.FUNCTIONAL_SET
     SENSOR = EmgSensorType.BioArmband
 
-    sensor = EmgSensor(SENSOR, window_size_ms=150, window_inc_ms=20, majority_vote_ms=0)
-    paths = NfcPaths(f"data/{sensor.get_name()}", -1)
+    sensor = EmgSensor(SENSOR, window_size_ms=150, window_inc_ms=50, majority_vote_ms=0)
+    # paths = NfcPaths(f"data/{sensor.get_name()}", -1)
+    paths = NfcPaths(f"data/0/{sensor.get_name()}", "no_adap")
     paths.gestures = "data/gestures/"
 
     train_dir = paths.get_train()
+    paths.test = "pre_test/"
     test_dir = paths.get_test()
 
     if SAMPLE_DATA:
         utils.do_sgt(sensor, GESTURE_IDS, paths.gestures, train_dir, 5, 3)
-    elif paths.trial == paths.get_next_trial():
-        paths.set_trial(paths.trial - 1)
+    # elif paths.trial == paths.get_next_trial():
+    #     paths.set_trial(paths.trial - 1)
 
     gestures_cids = utils.get_cid_from_gid(paths.gestures, train_dir, GESTURE_IDS)
     idle_id = utils.map_gid_to_cid(paths.gestures, train_dir)[1]
@@ -70,6 +72,15 @@ def __main():
 
         test_features = FeatureExtractor().extract_feature_group(
             feature_set, test_windows
+        )
+
+        FeatureExtractor().visualize_feature_space(
+            data_set["training_features"],
+            projection="PCA",
+            classes=train_labels,
+            # test_feature_dic=test_features,
+            # t_classes=test_labels,
+            render=True,
         )
 
         for k, v in data_set["training_features"].items():

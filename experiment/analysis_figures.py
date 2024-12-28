@@ -290,6 +290,9 @@ def boxplot_pre_post(sensor=EmgSensorType.BioArmband, features="TDPSD"):
         whishi = np.max(ca)
         whislo = np.min(ca)
 
+        print(
+            f"{labels[i]}: Lowest {whislo:.2f}, mean ${np.mean(ca):.2f} \pm {np.std(ca):.2f}$~\%, median {med:.2f} "
+        )
         stat = {
             "med": med,
             "q1": q1,
@@ -297,6 +300,7 @@ def boxplot_pre_post(sensor=EmgSensorType.BioArmband, features="TDPSD"):
             "whislo": 0 if whislo < 0 else whislo,
             "whishi": whishi,
             "mean": np.mean(ca),
+            "std": np.std(ca),
             "label": labels[i],
             "len": len(ca),
         }
@@ -318,12 +322,24 @@ def boxplot_pre_post(sensor=EmgSensorType.BioArmband, features="TDPSD"):
         else:
             continue
 
+        index = [False, True][i - 1]
+
         tlx.drop(columns=["Subject", "Adaptation", "Sensor"], inplace=True)
 
         ax.text(
             i + 1,
-            100.5,
+            104,
             f"NASA-TLX: {tlx.mean(None):.2f} ± {tlx.std().mean(None):.2f}",
+            ha="center",
+        )
+        ct = get_avg_completion_time().groupby(["Adaptation"])["Time"]
+        ct_mean = ct.mean()
+        ct_std = ct.std()
+
+        ax.text(
+            i + 1,
+            101,
+            f"Task time: {ct_mean[index]:.2f} ± {ct_std[index]:.2f} s",
             ha="center",
         )
 
@@ -363,22 +379,44 @@ def load_tlx(path: str = "data/nfc-emg-experiment - tlx.csv"):
 
 if __name__ == "__main__":
     # log.basicConfig(level=log.INFO)
+    # plt.rcParams.update({"font.size": 20})
 
     # fix_memory_ts()
     # print(get_avg_prediction_dt())
-    print(get_avg_completion_time())
+    # ct = get_avg_completion_time()
+    # print(ct)
+    # print(ct.groupby(["Adaptation"])["Time"].mean())
+    # print(ct.groupby(["Adaptation"])["Time"].std())
 
-    # tlx = load_tlx()
-    # tlx.drop(columns=["Subject", "Sensor"], inplace=True)
-    # tlx_adap = tlx[tlx["Adaptation"] == "Y"]
-    # tlx_adap.drop(columns=["Adaptation"], inplace=True)
-    # tlx_noadap = tlx[tlx["Adaptation"] == "N"]
-    # tlx_noadap.drop(columns=["Adaptation"], inplace=True)
-    # print(tlx_adap.mean())
-    # print(tlx_noadap.mean())
+    tlx = load_tlx()
+    tlx.drop(columns=["Subject", "Sensor"], inplace=True)
+    tlx_adap = tlx[tlx["Adaptation"] == "Y"]
+    tlx_adap.drop(columns=["Adaptation"], inplace=True)
+    tlx_noadap = tlx[tlx["Adaptation"] == "N"]
+    tlx_noadap.drop(columns=["Adaptation"], inplace=True)
 
-    # pointplot_full()
+    for d in tlx_noadap.columns:
+        print(
+            f"{d} & ${tlx_noadap[d].mean():.2f} \pm {tlx_noadap[d].std():.2f}$ & ${tlx_adap[d].mean():.2f} \pm {tlx_adap[d].std():.2f}$ \\\\"
+        )
+    print(
+        f"Overall & ${tlx_noadap.mean(None):.2f} \pm {np.mean((tlx_noadap.std())):.2f}$ & ${tlx_adap.mean(None):.2f} \pm {np.mean(tlx_adap.std()):.2f}$ \\\\"
+    )
+    # fig, axs, _ = pointplot_full()
+    # fig.tight_layout()
+
     # pointplot_pre_post()
-    # boxplot_pre_post()
-    # confmat_pre_post()
-    plt.show()
+    # fig, axs, stats = boxplot_pre_post()
+    # for stat in stats:
+    #     print(stats)
+    # fig.set_size_inches(16, 9)
+    # plt.savefig("embc2025/figures/boxplot_pre_post.png")
+
+    # plt.rcParams.update({"font.size": 10})
+    # figs = confmat_pre_post()
+    # for i, fig in enumerate(figs):
+    #     fig.figure_.tight_layout()
+    #     fig.figure_.savefig(f"embc2025/figures/confmat_pre_post_{i}.png")
+    # plt.rcParams.update({"font.size": 20})
+
+    # plt.show()

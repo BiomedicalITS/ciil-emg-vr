@@ -112,6 +112,16 @@ POSE_TO_NAME = {
     "T4": "Hand_Open",
 }
 
+NAME_TO_SHORT = {
+    "Chuck_Grip": "CG",
+    "Hand_Close": "HC",
+    "Hand_Open": "HO",
+    "Index_Extension": "IE",
+    "Index_Pinch": "IP",
+    "No_Motion": "HR",
+    "Wrist_Extension": "WE",
+    "Wrist_Flexion": "WF",
+}
 if __name__ == "__main__":
     # Test todict and fromdict for every class
     o = ArmControl.NEUTRAL
