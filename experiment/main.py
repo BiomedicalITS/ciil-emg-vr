@@ -63,7 +63,6 @@ def main(
         results_file = config.paths.get_results()
         utils.save_eval_results(results, results_file)
         utils.get_conf_mat(results, config.paths, config.gesture_ids)
-        plt.show()
     elif config.stage == ExperimentStage.GAME:
         # Change model path for saving after the game
         config.paths.set_model("model_post")
@@ -82,18 +81,20 @@ def main(
         results_file = config.paths.get_results()
         utils.save_eval_results(results, results_file)
         utils.get_conf_mat(results, config.paths, config.gesture_ids)
-        plt.show()
+    plt.show()
 
 
 if __name__ == "__main__":
     seed_everything(310)
     negative_method = "mixed"  # mixed or none
-    # relabel_method = "none"  # LabelSpreading or none
-    relabel_method = "LabelSpreading"  # LabelSpreading or none
+    relabel_method = "none"  # LabelSpreading or none
+    # relabel_method = "LabelSpreading"  # LabelSpreading or none
     features = "TDPSD"
     sensor = EmgSensorType.BioArmband
     mains_freq = 60
+
     sample_data = False
+    sample_data = True
 
     # subjects = [0, 1, 2, 3, 4, 5, 6, 7, 8]
     subjects = [99]
@@ -101,12 +102,13 @@ if __name__ == "__main__":
     # steps = [ExperimentStage.FAMILIARIZATION]
     # steps = [ExperimentStage.SG_TRAIN, ExperimentStage.SG_PRE_TEST]
     # steps = [ExperimentStage.SG_PRE_TEST]
-    # steps = [ExperimentStage.GAME]
+    steps = [ExperimentStage.GAME]
     # steps = [ExperimentStage.GAME, ExperimentStage.SG_POST_TEST]
-    steps = [ExperimentStage.SG_POST_TEST]
+    # steps = [ExperimentStage.SG_POST_TEST]
     # steps = [ExperimentStage.SG_PRE_TEST, ExperimentStage.SG_POST_TEST]
 
     param_1 = False
+    param_1 = True
 
     for subject in subjects:
         for step in steps:

@@ -165,40 +165,44 @@ class EmgCNN(L.LightningModule):
 
         This function takes care of data normalization.
         """
-        train_data, val_data, train_labels, val_labels = train_test_split(
-            data, labels, test_size=0.2
-        )
+        # train_data, val_data, train_labels, val_labels = train_test_split(
+        #     data, labels, test_size=0.2
+        # )
+        train_data, train_labels = data, labels
 
         train_data = self.convert_input(train_data)
         train_labels = torch.from_numpy(train_labels).to(self.device)
         train_dl = DataLoader(TensorDataset(train_data, train_labels), batch_size=32)
 
-        val_data = self.convert_input(val_data)
-        val_labels = torch.from_numpy(val_labels).to(self.device)
-        val_dl = DataLoader(TensorDataset(val_data, val_labels), batch_size=100)
+        # val_data = self.convert_input(val_data)
+        # val_labels = torch.from_numpy(val_labels).to(self.device)
+        # val_dl = DataLoader(TensorDataset(val_data, val_labels), batch_size=100)
 
         self.train()
-        optim = self.configure_optimizers()
+        optim = torch.optim.AdamW(self.parameters(), lr=1e-3)
         # for _ in range(5):
+        loss_avg = 0
         for i, batch in enumerate(train_dl):
-            if len(batch[0]) < 2:
+            if len(batch[0]) == 1:
                 continue
             optim.zero_grad()
             loss = self.training_step(batch, i, False)
             loss.backward()
             optim.step()
-
+            loss_avg += loss.item()
         self.eval()
-        rets = {}
-        num_batches = 0
-        for i, batch in enumerate(val_dl):
-            ret = self.test_step(batch, i, False)
-            num_batches += 1
-            if rets == {}:
-                rets = ret
-            else:
-                rets = {k: v + ret[k] for k, v in rets.items()}
-        return {k: v / num_batches for k, v in rets.items()}
+        return {"loss": loss_avg, "acc": 0.0}
+        # rets = {}
+        # num_batches = 0
+        # for i, batch in enumerate(val_dl):
+        #     with torch.no_grad():
+        #         ret = self.test_step(batch, i, False)
+        #     num_batches += 1
+        #     if rets == {}:
+        #         rets = ret
+        #     else:
+        #         rets = {k: v + ret[k] for k, v in rets.items()}
+        # return {k: v / num_batches for k, v in rets.items()}
 
 
 class EmgMLP(L.LightningModule):

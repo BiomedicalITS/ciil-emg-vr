@@ -121,9 +121,12 @@ def run_adaptation_manager(
                 #     n_samples=1000,
                 # )
 
-                preds = model_to_adapt.predict(adap_data)
-                acc = accuracy_score(np.argmax(adap_labels, axis=1), preds)
-                logger.info(f"AM: #{adapt_round+1} pre-acc: {acc*100:.2f}%")
+                # preds = model_to_adapt.predict(adap_data)
+                # acc = accuracy_score(np.argmax(adap_labels, axis=1), preds)
+                # logger.info(f"AM: #{adapt_round+1} pre-acc: {acc*100:.2f}%")
+                correct = memory.experience_outcome.count("P")
+                pre_acc = correct / len(memory.experience_outcome)
+                logger.info(f"AM: #{adapt_round+1} pre-acc: {pre_acc*100:.2f}%")
 
                 t1 = time.perf_counter()
                 rets = model_to_adapt.fit(adap_data, adap_labels.astype(np.float32))
@@ -132,7 +135,7 @@ def run_adaptation_manager(
                 if rets:
                     adapt_round += 1
                     csv_results.writerow(
-                        [adapt_round, len(memory)] + list(rets.values())
+                        [adapt_round, len(memory), pre_acc] + list(rets.values())
                     )
                     csv_file.flush()
                     logger.info(
@@ -150,6 +153,7 @@ def run_adaptation_manager(
                         model_to_adapt,
                         model_path + f"model_{adapt_round}.pth",
                     )
+                    memory = Memory()
                 else:
                     logger.warning("AM: no adaptation")
 

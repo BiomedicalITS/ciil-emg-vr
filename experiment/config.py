@@ -91,21 +91,30 @@ class Config:
         if self.stage >= ExperimentStage.GAME and self.adaptation:
             src = self.paths.get_experiment_dir()
             self.paths.trial = "adap"
+
+            dest = self.paths.get_experiment_dir()
             if "adap" not in os.listdir(self.paths.base):
-                dest = self.paths.get_experiment_dir()
                 os.mkdir(dest)
-                shutil.copy(src + "model.pth", dest + "model.pth")
-                shutil.copy(src + "results_pre.json", dest + "results_pre.json")
-                shutil.copytree(src + "train/", dest + "train/")
-                shutil.copytree(src + "pre_test/", dest + "pre_test/")
+
+            # Just always override the common files for safety...
+            shutil.copy(src + "model.pth", dest + "model.pth")
+            shutil.copy(src + "results_pre.json", dest + "results_pre.json")
+            shutil.copytree(src + "train/", dest + "train/", dirs_exist_ok=True)
+            shutil.copytree(src + "pre_test/", dest + "pre_test/", dirs_exist_ok=True)
 
         # Set testing data path
         if self.stage < ExperimentStage.SG_POST_TEST:
             self.paths.test = self.paths.test.replace("test", "pre_test")
-            self.paths.results = self.paths.results.replace(".csv", "_pre.json")
         else:
             self.paths.test = self.paths.test.replace("test", "post_test")
-            self.paths.results = self.paths.results.replace(".csv", "_post.json")
+
+        # Set results file path
+        if self.stage == ExperimentStage.SG_PRE_TEST:
+            self.paths.results = "results_pre.json"
+        elif self.stage == ExperimentStage.GAME:
+            self.paths.results = "results_live.csv"
+        elif self.stage == ExperimentStage.SG_POST_TEST:
+            self.paths.results = "results_post.json"
 
     def get_feature_parameters(self):
         if isinstance(self.features, str):
@@ -126,9 +135,7 @@ class Config:
         self.accelerator = (
             "cuda"
             if torch.cuda.is_available()
-            else "mps"
-            if torch.backends.mps.is_available()
-            else "cpu"
+            else "mps" if torch.backends.mps.is_available() else "cpu"
         )
         torch.set_float32_matmul_precision("high")
 

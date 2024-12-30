@@ -99,6 +99,19 @@ class SubjectResults:
 
         return Memory().from_file(self.config.paths.get_memory(), mem_id)
 
+    def load_concat_memories(self):
+        """Load and concatenate all memories. Ignores the memory ID 1000.
+
+        Returns:
+            Memory: concatenated memory.
+        """
+        mems = self.find_memory_ids()
+        mems.remove(1000)
+        memory = Memory()
+        for mem in mems:
+            memory += self.load_memory(mem)
+        return memory
+
     def load_predictions(self):
         """Load predictions from the subject's predictions file.
 
@@ -234,15 +247,26 @@ def get_subjects(base: str):
 
 
 def main():
-    subject = 8
+    subject = 99
     sensor = EmgSensorType.BioArmband
     features = "TDPSD"
     adaptation = True
-    stage = ExperimentStage.SG_PRE_TEST
+    stage = ExperimentStage.SG_POST_TEST
 
     sr, results_subj = load_model_eval_metrics(
         subject, sensor, features, stage, adaptation
     )
+
+    m = sr.load_concat_memories()
+    print(len(m))
+    memory0 = sr.load_memory(0)
+    memory = sr.load_memory(1000)
+    print(len(memory0), len(memory))
+    outcomes = memory.experience_outcome[len(memory0) :]
+    print(
+        f"P{sr.config.subject_id} Accuracy: {100 * outcomes.count('P') / len(outcomes)} ({len(outcomes)})"
+    )
+
     # ts, preds, feats = sr.load_predictions()
     memory0 = sr.load_memory(0)
     memory = sr.load_memory(1000)

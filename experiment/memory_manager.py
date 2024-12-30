@@ -101,29 +101,32 @@ def run_memory_manager(
     unity_in_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     unity_in_sock.bind(("localhost", unity_in_port))
 
-    # At this point, clear old memory data
+    # At this point, clear old memory data and models
     for f in os.listdir(memory_dir):
         os.remove(memory_dir + f)
 
-    # Create some initial memory data
-    base_odh = datasets.get_offline_datahandler(
-        data_dir,
-        utils.get_cid_from_gid(config.paths.gestures, data_dir, config.gesture_ids),
-        utils.get_reps(data_dir),
-    )
-    base_win, base_labels = datasets.prepare_data(base_odh, config.sensor)
-    base_features = FeatureExtractor().extract_features(
-        config.features, base_win, array=True
-    )
-    memory = Memory().add_memories(
-        base_features,
-        np.eye(len(config.gesture_ids))[base_labels],  # one-hot encoded labels
-        np.zeros((len(base_labels), 3)),
-        ["P"] * len(base_labels),  # offline data set as positive
-        [0.0] * len(base_labels),  # offline data set as timestamp 0
-    )
+    for f in os.listdir(config.paths.get_models()):
+        os.remove(config.paths.get_models() + f)
 
-    # memory = Memory()
+    # Create some initial memory data
+    # base_odh = datasets.get_offline_datahandler(
+    #     data_dir,
+    #     utils.get_cid_from_gid(config.paths.gestures, data_dir, config.gesture_ids),
+    #     utils.get_reps(data_dir),
+    # )
+    # base_win, base_labels = datasets.prepare_data(base_odh, config.sensor)
+    # base_features = FeatureExtractor().extract_features(
+    #     config.features, base_win, array=True
+    # )
+    # memory = Memory().add_memories(
+    #     base_features,
+    #     np.eye(len(config.gesture_ids))[base_labels],  # one-hot encoded labels
+    #     np.zeros((len(base_labels), 3)),
+    #     ["P"] * len(base_labels),  # offline data set as positive
+    #     [0.0] * len(base_labels),  # offline data set as timestamp 0
+    # )
+
+    memory = Memory()
 
     # runtime constants
     name_to_cid = reverse_dict(map_cid_to_name(config.paths.get_train()))
@@ -173,7 +176,7 @@ def run_memory_manager(
                 sock: socket.socket
                 udp_packet, address = sock.recvfrom(1024)
                 udp_packet = udp_packet.decode()
-                logger.info(f"MM: received {udp_packet} from {address}")
+                # logger.info(f"MM: received {udp_packet} from {address}")
                 if sock == unity_in_sock:
                     # Unity sends "Q" when it shuts down / is done
                     if udp_packet == "Q":
@@ -185,8 +188,6 @@ def run_memory_manager(
                     # ensure context packet
                     elif not (udp_packet.startswith("P") or udp_packet.startswith("N")):
                         continue
-
-                    logger.info(f"MM: {udp_packet}")
 
                     with live_data_lock:
                         adap_data = live_data.copy()
