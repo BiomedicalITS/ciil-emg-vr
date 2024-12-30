@@ -101,7 +101,7 @@ if __name__ == "__main__":
 
     # ========== Data parameters ==========
     sample_data = False
-    # sample_data = True
+    sample_data = True
 
     finetune = True
     finetune = False
@@ -109,7 +109,7 @@ if __name__ == "__main__":
     # ========== Experiment parameters ==========
 
     # subjects = [0, 1, 2, 3, 4, 5, 6, 7, 8]
-    subjects = [8]
+    subjects = [2]
 
     # steps = [ExperimentStage.FAMILIARIZATION]
     # steps = [ExperimentStage.SG_TRAIN, ExperimentStage.SG_PRE_TEST]

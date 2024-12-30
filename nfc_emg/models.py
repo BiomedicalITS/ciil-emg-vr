@@ -57,8 +57,8 @@ class EmgCNN(L.LightningModule):
 
         layers = []
         for i in range(1, len(conv_sizes)):
-            # convlen = 5 if i == 1 else 3
-            convlen = 3
+            convlen = 5 if i == 1 else 3
+            # convlen = 3
             layers.append(
                 ConvNd(
                     conv_sizes[i - 1],
