@@ -3,6 +3,7 @@ from enum import IntEnum
 import numpy as np
 import torch
 import shutil
+import logging as log
 
 import libemg
 
@@ -33,6 +34,7 @@ class Config:
         negative_method="mixed",
         relabel_method="none",
         gesture_ids=(1, 2, 3, 4, 5, 8, 26, 30),
+        finetune=False,
     ):
         """Create the config experiment.
 
@@ -58,6 +60,7 @@ class Config:
         )
         self.stage = stage
 
+        self.finetune = finetune
         self.model_type = model_type
         self.negative_method = negative_method
         self.relabel_method = relabel_method
@@ -122,7 +125,7 @@ class Config:
             self.features = fe.get_feature_groups()[self.features]
 
     def get_datacollection_parameters(self):
-        self.reps = 5
+        self.reps = 5 if not self.finetune else 1
         self.rep_time = 3
         self.rest_time = 1
 
@@ -139,7 +142,23 @@ class Config:
         )
         torch.set_float32_matmul_precision("high")
 
-        if (
+        # Load or create model
+        if self.stage >= ExperimentStage.SG_PRE_TEST or self.finetune:
+            # Load post-game model
+            if self.stage == ExperimentStage.SG_POST_TEST:
+                self.paths.set_model("model_post")
+
+            log.info(f"Loading model from {self.paths.get_model()}")
+
+            if self.model_type == "CNN":
+                self.model = models.load_conv(
+                    self.paths.get_model(), self.num_channels, self.input_shape
+                )
+            elif self.model_type == "MLP":
+                self.model = models.load_mlp(self.paths.get_model())
+            else:
+                raise ValueError("Invalid model type.")
+        elif (
             self.stage == ExperimentStage.SG_TRAIN
             or self.stage == ExperimentStage.FAMILIARIZATION
         ):
@@ -155,18 +174,14 @@ class Config:
                 )
             else:
                 raise ValueError("Invalid model type.")
-            return
-        elif self.stage == ExperimentStage.SG_POST_TEST:
-            self.paths.set_model("model_post")
 
-        if self.model_type == "CNN":
-            self.model = models.load_conv(
-                self.paths.get_model(), self.num_channels, self.input_shape
-            )
-        elif self.model_type == "MLP":
-            self.model = models.load_mlp(self.paths.get_model())
+        # Only finetune last layer except for the game stage
+        if self.finetune and self.stage == ExperimentStage.SG_TRAIN:
+            log.warning("========== Enabling finetuning ==========")
+            self.model.feature_extractor.requires_grad_(False)
         else:
-            raise ValueError("Invalid model type.")
+            log.info("Model NOT in finetuning.")
+            self.model.feature_extractor.requires_grad_(True)
 
         self.model.to(self.accelerator)
 

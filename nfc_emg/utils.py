@@ -338,7 +338,45 @@ def get_conf_mat(results: dict, paths: NfcPaths, gesture_ids: list):
     return fig
 
 
+def concat_train_data(data_dirs: list[str], out_dir: str):
+    """
+    Concatenate training data from multiple directories into a single directory.
+
+    MUST BE OF THE FORMET R_<REP>_C_<ID>_EMG.csv
+    """
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+    total_reps = -1
+    for d in data_dirs:
+        current_dir_rep = -1
+        for f in sorted(os.listdir(d)):
+            if not f.startswith("R_") and not f.endswith("EMG.csv"):
+                continue
+            f_rep = int(f.split("_")[1])  # file rep number
+            if f_rep != current_dir_rep:
+                current_dir_rep = f_rep
+                total_reps += 1
+            newf = f.replace(f"R_{f_rep}", f"R_{total_reps}")
+            shutil.copy(d + f, out_dir + newf)
+    return total_reps + 1
+
+
 if __name__ == "__main__":
-    screen_guided_training(
-        OnlineDataHandler(), [1, 2, 3, 4, 5], "data/gestures/", 5, 5, "data/train/"
+    # screen_guided_training(
+    #     OnlineDataHandler(), [1, 2, 3, 4, 5], "data/gestures/", 5, 5, "data/train/"
+    # )
+
+    n = concat_train_data(
+        [
+            "data/0/bio/no_adap/train/",
+            "data/0/bio/no_adap/pre_test/",
+            "data/0/bio/no_adap/post_test/",
+            "data/0/bio/adap/post_test/",
+            "data/5/bio/no_adap/train/",
+            "data/5/bio/no_adap/pre_test/",
+            "data/5/bio/no_adap/post_test/",
+            "data/5/bio/adap/post_test/",
+        ],
+        "data/100/bio/no_adap/train/",
     )
+    print("Total reps:", n)

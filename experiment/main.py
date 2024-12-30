@@ -1,5 +1,6 @@
 from lightning.pytorch import seed_everything
 import matplotlib.pyplot as plt
+import logging as log
 
 from nfc_emg import models, utils
 from nfc_emg.sensors import EmgSensorType
@@ -19,6 +20,7 @@ def main(
     negative_method,
     relabel_method,
     powerline_freq,
+    finetune: bool,
 ):
     config = Config(
         subject_id=subject_id,
@@ -29,6 +31,7 @@ def main(
         negative_method=negative_method,
         relabel_method=relabel_method,
         powerline_notch_freq=powerline_freq,
+        finetune=finetune,
     )
 
     if config.stage == ExperimentStage.FAMILIARIZATION:
@@ -38,6 +41,7 @@ def main(
         fam = Familiarization(config, True)
         fam.run()
     elif config.stage == ExperimentStage.SG_TRAIN:
+        data_dir = config.paths.get_train() if not finetune else config.paths.get_fine()
         models.main_train_nn(
             config.model,
             config.sensor,
@@ -45,7 +49,7 @@ def main(
             config.features,
             config.gesture_ids,
             config.paths.gestures,
-            config.paths.get_train(),
+            data_dir,
             config.paths.get_model(),
             config.reps,
             config.rep_time,
@@ -86,6 +90,8 @@ def main(
 
 if __name__ == "__main__":
     seed_everything(310)
+    log.basicConfig(level=log.INFO)
+
     negative_method = "mixed"  # mixed or none
     relabel_method = "none"  # LabelSpreading or none
     # relabel_method = "LabelSpreading"  # LabelSpreading or none
@@ -93,22 +99,28 @@ if __name__ == "__main__":
     sensor = EmgSensorType.BioArmband
     mains_freq = 60
 
+    # ========== Data parameters ==========
     sample_data = False
-    sample_data = True
+    # sample_data = True
+
+    finetune = True
+    finetune = False
+
+    # ========== Experiment parameters ==========
 
     # subjects = [0, 1, 2, 3, 4, 5, 6, 7, 8]
-    subjects = [99]
+    subjects = [8]
 
     # steps = [ExperimentStage.FAMILIARIZATION]
     # steps = [ExperimentStage.SG_TRAIN, ExperimentStage.SG_PRE_TEST]
     # steps = [ExperimentStage.SG_PRE_TEST]
-    steps = [ExperimentStage.GAME]
+    # steps = [ExperimentStage.GAME]
     # steps = [ExperimentStage.GAME, ExperimentStage.SG_POST_TEST]
     # steps = [ExperimentStage.SG_POST_TEST]
-    # steps = [ExperimentStage.SG_PRE_TEST, ExperimentStage.SG_POST_TEST]
+    steps = [ExperimentStage.SG_PRE_TEST, ExperimentStage.SG_POST_TEST]
 
     param_1 = False
-    param_1 = True
+    # param_1 = True
 
     for subject in subjects:
         for step in steps:
@@ -127,6 +139,7 @@ if __name__ == "__main__":
                 negative_method,
                 relabel_method,
                 mains_freq,
+                finetune,
             )
 
     print("Exiting experiment main thread.")

@@ -49,23 +49,36 @@ class EmgCNN(L.LightningModule):
         self.emg_shape = emg_shape
         self.num_channels = num_channels
 
-        hl_sizes = [32, 32, 256]
-        # hl_sizes = [num_features, 128]
+        conv_sizes = [num_channels, 32, 32]
+        fc_sizes = [conv_sizes[-1] * np.prod(self.emg_shape), 256]
 
-        self.feature_extractor = nn.Sequential(
-            ConvNd(num_channels, hl_sizes[0], 5, padding="same"),
-            BatchNormNd(hl_sizes[0]),
-            nn.LeakyReLU(),
-            ConvNd(hl_sizes[0], hl_sizes[1], 3, padding="same"),
-            BatchNormNd(hl_sizes[1]),
-            nn.LeakyReLU(),
-            nn.Flatten(),
-            nn.Linear(hl_sizes[1] * np.prod(self.emg_shape), hl_sizes[2]),
-            nn.BatchNorm1d(hl_sizes[2]),
-            nn.LeakyReLU(),
-        )
+        log.info(f"Conv layer channels: {conv_sizes}")
+        log.info(f"FC layer neurons: {fc_sizes}")
 
-        self.classifier = nn.Linear(hl_sizes[-1], num_classes)
+        layers = []
+        for i in range(1, len(conv_sizes)):
+            # convlen = 5 if i == 1 else 3
+            convlen = 3
+            layers.append(
+                ConvNd(
+                    conv_sizes[i - 1],
+                    conv_sizes[i],
+                    convlen,
+                    padding="same",
+                    padding_mode="circular",
+                )
+            )
+            layers.append(BatchNormNd(conv_sizes[i]))
+            layers.append(nn.LeakyReLU())
+        layers.append(nn.Flatten())
+        for i in range(1, len(fc_sizes)):
+            layers.append(nn.Linear(fc_sizes[i - 1], fc_sizes[i]))
+            layers.append(nn.BatchNorm1d(fc_sizes[i]))
+            layers.append(nn.Dropout(0.2))
+            layers.append(nn.LeakyReLU())
+
+        self.feature_extractor = nn.Sequential(*layers)
+        self.classifier = nn.Linear(fc_sizes[-1], num_classes)
 
     def forward(self, x):
         x = torch.reshape(x, (-1, self.num_channels, *self.emg_shape))

@@ -70,7 +70,7 @@ class NfcPaths:
         return f"{self.get_experiment_dir()}{self.test}"
 
     def get_fine(self):
-        return f"{self.get_experiment_dir()}{self.train}"
+        return f"{self.get_experiment_dir()}{self.fine}"
 
     def get_models(self):
         models = f"{self.get_experiment_dir()}{self.models}"

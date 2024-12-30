@@ -1,5 +1,4 @@
 from enum import IntEnum
-from nfc_emg import utils
 
 
 class GenericControl(IntEnum):
@@ -122,6 +121,7 @@ NAME_TO_SHORT = {
     "Wrist_Extension": "WE",
     "Wrist_Flexion": "WF",
 }
+
 if __name__ == "__main__":
     # Test todict and fromdict for every class
     o = ArmControl.NEUTRAL
