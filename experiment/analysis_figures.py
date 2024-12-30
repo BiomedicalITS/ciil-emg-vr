@@ -314,34 +314,34 @@ def boxplot_pre_post(sensor=EmgSensorType.BioArmband, features="TDPSD"):
     for i, stat in enumerate(stats):
         bplot["boxes"][i].set_facecolor("lightblue")
 
-        tlx = load_tlx()
-        if i == 1:
-            tlx = tlx[tlx["Adaptation"] == "N"]
-        elif i == 2:
-            tlx = tlx[tlx["Adaptation"] == "Y"]
-        else:
-            continue
+        # tlx = load_tlx()
+        # if i == 1:
+        #     tlx = tlx[tlx["Adaptation"] == "N"]
+        # elif i == 2:
+        #     tlx = tlx[tlx["Adaptation"] == "Y"]
+        # else:
+        #     continue
 
-        index = [False, True][i - 1]
+        # index = [False, True][i - 1]
 
-        tlx.drop(columns=["Subject", "Adaptation", "Sensor"], inplace=True)
+        # tlx.drop(columns=["Subject", "Adaptation", "Sensor"], inplace=True)
 
-        ax.text(
-            i + 1,
-            104,
-            f"NASA-TLX: {tlx.mean(None):.2f} ± {tlx.std().mean(None):.2f}",
-            ha="center",
-        )
-        ct = get_avg_completion_time().groupby(["Adaptation"])["Time"]
-        ct_mean = ct.mean()
-        ct_std = ct.std()
+        # ax.text(
+        #     i + 1,
+        #     104,
+        #     f"NASA-TLX: {tlx.mean(None):.2f} ± {tlx.std().mean(None):.2f}",
+        #     ha="center",
+        # )
+        # ct = get_avg_completion_time().groupby(["Adaptation"])["Time"]
+        # ct_mean = ct.mean()
+        # ct_std = ct.std()
 
-        ax.text(
-            i + 1,
-            101,
-            f"Task time: {ct_mean[index]:.2f} ± {ct_std[index]:.2f} s",
-            ha="center",
-        )
+        # ax.text(
+        #     i + 1,
+        #     101,
+        #     f"Task time: {ct_mean[index]:.2f} ± {ct_std[index]:.2f} s",
+        #     ha="center",
+        # )
 
     ax.set_xlabel("Test case")
     ax.set_ylabel("Classification Accuracy (%)")
@@ -388,24 +388,26 @@ if __name__ == "__main__":
     # print(ct.groupby(["Adaptation"])["Time"].mean())
     # print(ct.groupby(["Adaptation"])["Time"].std())
 
-    tlx = load_tlx()
-    tlx.drop(columns=["Subject", "Sensor"], inplace=True)
-    tlx_adap = tlx[tlx["Adaptation"] == "Y"]
-    tlx_adap.drop(columns=["Adaptation"], inplace=True)
-    tlx_noadap = tlx[tlx["Adaptation"] == "N"]
-    tlx_noadap.drop(columns=["Adaptation"], inplace=True)
+    # tlx = load_tlx()
+    # tlx.drop(columns=["Subject", "Sensor"], inplace=True)
+    # tlx_adap = tlx[tlx["Adaptation"] == "Y"]
+    # tlx_adap.drop(columns=["Adaptation"], inplace=True)
+    # tlx_noadap = tlx[tlx["Adaptation"] == "N"]
+    # tlx_noadap.drop(columns=["Adaptation"], inplace=True)
 
-    for d in tlx_noadap.columns:
-        print(
-            f"{d} & ${tlx_noadap[d].mean():.2f} \pm {tlx_noadap[d].std():.2f}$ & ${tlx_adap[d].mean():.2f} \pm {tlx_adap[d].std():.2f}$ \\\\"
-        )
-    print(
-        f"Overall & ${tlx_noadap.mean(None):.2f} \pm {np.mean((tlx_noadap.std())):.2f}$ & ${tlx_adap.mean(None):.2f} \pm {np.mean(tlx_adap.std()):.2f}$ \\\\"
-    )
-    # fig, axs, _ = pointplot_full()
-    # fig.tight_layout()
+    # for d in tlx_noadap.columns:
+    #     print(
+    #         f"{d} & ${tlx_noadap[d].mean():.2f} \pm {tlx_noadap[d].std():.2f}$ & ${tlx_adap[d].mean():.2f} \pm {tlx_adap[d].std():.2f}$ \\\\"
+    #     )
+    # print(
+    #     f"Overall & ${tlx_noadap.mean(None):.2f} \pm {np.mean((tlx_noadap.std())):.2f}$ & ${tlx_adap.mean(None):.2f} \pm {np.mean(tlx_adap.std()):.2f}$ \\\\"
+    # )
+
+    fig, axs, _ = pointplot_full()
+    fig.tight_layout()
 
     # pointplot_pre_post()
+
     # fig, axs, stats = boxplot_pre_post()
     # for stat in stats:
     #     print(stats)
@@ -419,4 +421,4 @@ if __name__ == "__main__":
     #     fig.figure_.savefig(f"embc2025/figures/confmat_pre_post_{i}.png")
     # plt.rcParams.update({"font.size": 20})
 
-    # plt.show()
+    plt.show()

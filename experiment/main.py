@@ -51,7 +51,6 @@ def main(
             config.rep_time,
         )
     elif config.stage == ExperimentStage.SG_PRE_TEST:
-        config.paths.test = config.paths.test.replace("test", "pre_test")
         results = models.main_test_nn(
             config.model,
             config.sensor,
@@ -61,16 +60,16 @@ def main(
             config.paths.gestures,
             config.paths.get_test(),
         )
-        results_file = config.paths.get_results().replace(".csv", "_pre.json")
+        results_file = config.paths.get_results()
         utils.save_eval_results(results, results_file)
         utils.get_conf_mat(results, config.paths, config.gesture_ids)
         plt.show()
     elif config.stage == ExperimentStage.GAME:
+        # Change model path for saving after the game
         config.paths.set_model("model_post")
         game = Game(config)
         game.run()
     elif config.stage == ExperimentStage.SG_POST_TEST:
-        config.paths.test = config.paths.test.replace("test", "post_test")
         results = models.main_test_nn(
             config.model,
             config.sensor,
@@ -80,7 +79,7 @@ def main(
             config.paths.gestures,
             config.paths.get_test(),
         )
-        results_file = config.paths.get_results().replace(".csv", "_post.json")
+        results_file = config.paths.get_results()
         utils.save_eval_results(results, results_file)
         utils.get_conf_mat(results, config.paths, config.gesture_ids)
         plt.show()
@@ -94,20 +93,20 @@ if __name__ == "__main__":
     features = "TDPSD"
     sensor = EmgSensorType.BioArmband
     mains_freq = 60
-    sample_data = True
+    sample_data = False
 
-    subjects = [1, 2, 3, 4, 5, 6, 7, 8]
-    subjects = [10]
+    # subjects = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    subjects = [99]
 
     # steps = [ExperimentStage.FAMILIARIZATION]
     # steps = [ExperimentStage.SG_TRAIN, ExperimentStage.SG_PRE_TEST]
     # steps = [ExperimentStage.SG_PRE_TEST]
-    steps = [ExperimentStage.GAME]
+    # steps = [ExperimentStage.GAME]
     # steps = [ExperimentStage.GAME, ExperimentStage.SG_POST_TEST]
-    # steps = [ExperimentStage.SG_POST_TEST]
+    steps = [ExperimentStage.SG_POST_TEST]
     # steps = [ExperimentStage.SG_PRE_TEST, ExperimentStage.SG_POST_TEST]
 
-    param_1 = True
+    param_1 = False
 
     for subject in subjects:
         for step in steps:

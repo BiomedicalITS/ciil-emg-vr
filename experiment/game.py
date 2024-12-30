@@ -37,7 +37,7 @@ class Game:
 
         classi = EMGClassifier()
         classi.classifier = config.model
-        classi.add_majority_vote(self.sensor.maj_vote_n)
+        # classi.add_majority_vote(self.sensor.maj_vote_n)
         # classi.add_rejection()
 
         self.oclassi = OnlineEMGClassifier(
@@ -59,6 +59,8 @@ class Game:
     def run(self):
         print("Waiting for Unity to send 'READY'...")
 
+        self.sensor.start_streamer()
+
         unity_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         unity_sock.bind(("localhost", self.unity_port))
         while True:
@@ -74,7 +76,6 @@ class Game:
                 break
 
         print("Starting the Python Game Stage!")
-        self.sensor.start_streamer()
 
         Thread(
             target=super_classi.run_classifier,

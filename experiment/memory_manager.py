@@ -101,6 +101,10 @@ def run_memory_manager(
     unity_in_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     unity_in_sock.bind(("localhost", unity_in_port))
 
+    # At this point, clear old memory data
+    for f in os.listdir(memory_dir):
+        os.remove(memory_dir + f)
+
     # Create some initial memory data
     base_odh = datasets.get_offline_datahandler(
         data_dir,

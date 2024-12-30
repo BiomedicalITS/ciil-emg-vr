@@ -99,6 +99,14 @@ class Config:
                 shutil.copytree(src + "train/", dest + "train/")
                 shutil.copytree(src + "pre_test/", dest + "pre_test/")
 
+        # Set testing data path
+        if self.stage < ExperimentStage.SG_POST_TEST:
+            self.paths.test = self.paths.test.replace("test", "pre_test")
+            self.paths.results = self.paths.results.replace(".csv", "_pre.json")
+        else:
+            self.paths.test = self.paths.test.replace("test", "post_test")
+            self.paths.results = self.paths.results.replace(".csv", "_post.json")
+
     def get_feature_parameters(self):
         if isinstance(self.features, str):
             fe = libemg.feature_extractor.FeatureExtractor()
