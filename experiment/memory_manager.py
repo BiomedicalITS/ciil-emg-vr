@@ -13,7 +13,7 @@ from libemg.feature_extractor import FeatureExtractor
 
 from nfc_emg.schemas import POSE_TO_NAME
 from nfc_emg.utils import reverse_dict, map_cid_to_name
-from nfc_emg import datasets, utils
+
 
 from config import Config
 from memory import Memory
@@ -81,7 +81,6 @@ def run_memory_manager(
     """
     save_dir = config.paths.get_experiment_dir()
     memory_dir = config.paths.get_memory()
-    data_dir = config.paths.get_train()
 
     logger = logging.getLogger("memory_manager")
     logger.setLevel(logging.INFO)
@@ -107,24 +106,6 @@ def run_memory_manager(
 
     for f in os.listdir(config.paths.get_models()):
         os.remove(config.paths.get_models() + f)
-
-    # Create some initial memory data
-    # base_odh = datasets.get_offline_datahandler(
-    #     data_dir,
-    #     utils.get_cid_from_gid(config.paths.gestures, data_dir, config.gesture_ids),
-    #     utils.get_reps(data_dir),
-    # )
-    # base_win, base_labels = datasets.prepare_data(base_odh, config.sensor)
-    # base_features = FeatureExtractor().extract_features(
-    #     config.features, base_win, array=True
-    # )
-    # memory = Memory().add_memories(
-    #     base_features,
-    #     np.eye(len(config.gesture_ids))[base_labels],  # one-hot encoded labels
-    #     np.zeros((len(base_labels), 3)),
-    #     ["P"] * len(base_labels),  # offline data set as positive
-    #     [0.0] * len(base_labels),  # offline data set as timestamp 0
-    # )
 
     memory = Memory()
 
@@ -237,7 +218,7 @@ def run_memory_manager(
                         adap_was_pred_good,
                         timestamp,
                     )
-                    logger.info(f"MM: memory len {len(memory)}")
+                    # logger.info(f"MM: memory len {len(memory)}")
 
                 if sock == manager_sock or is_adapt_mngr_waiting:
                     if adapt_manager_addr is None:
@@ -273,7 +254,7 @@ def run_memory_manager(
                     manager_sock.sendto(b"WROTE", adapt_manager_addr)
                     is_adapt_mngr_waiting = False
         except Exception as e:
-            logger.error(f"MM: {e}")
+            logger.error(f"MM: Error {e}")
             manager_sock.sendto(b"STOP", adapt_manager_addr)
             return
 

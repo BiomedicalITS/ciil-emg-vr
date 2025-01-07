@@ -10,8 +10,10 @@ from sklearn.metrics import accuracy_score
 from sklearn.semi_supervised import LabelSpreading
 
 from libemg.emg_classifier import OnlineEMGClassifier
+from libemg.feature_extractor import FeatureExtractor
 
 from nfc_emg.models import save_nn
+from nfc_emg import datasets, utils
 
 from config import Config
 from memory import Memory
@@ -50,7 +52,27 @@ def run_adaptation_manager(
     with model_lock:
         model_to_adapt = copy.deepcopy(config.model)
 
-    # initialize memory
+    # Create some initial memory data
+    LOAD_INITIAL_DATA = False
+
+    ls_labels = np.ndarray((0,))
+    ls_features = np.ndarray(
+        (0, len(config.features) * np.prod(config.sensor.emg_shape))
+    )
+
+    if LOAD_INITIAL_DATA:
+        data_dir = config.paths.get_train()
+        base_odh = datasets.get_offline_datahandler(
+            data_dir,
+            utils.get_cid_from_gid(config.paths.gestures, data_dir, config.gesture_ids),
+            utils.get_reps(data_dir),
+        )
+
+        base_win, ls_labels = datasets.prepare_data(base_odh, config.sensor)
+        ls_features = FeatureExtractor().extract_features(
+            config.features, base_win, array=True
+        )
+
     memory = Memory()
     memory_id = 0
 
@@ -65,14 +87,14 @@ def run_adaptation_manager(
     csv_file = open(config.paths.get_results(), "w", newline="")
     csv_results = csv.writer(csv_file)
 
-    logger.info("AM: starting")
+    logger.info("starting")
     start_time = time.perf_counter()
 
     while time.perf_counter() - start_time < config.game_time:
         try:
             udp_pkt = manager_sock.recv(1024).decode()
             if udp_pkt == "STOP":
-                logger.info("AM: received STOP")
+                logger.info("received STOP")
                 break
             elif udp_pkt != "WROTE":
                 continue
@@ -87,46 +109,63 @@ def run_adaptation_manager(
 
             # print(f"Loaded memory #{memory_id} in {del_t:.3f} s")
             logger.info(
-                f"AM: loaded memory {memory_id}, size {len(memory)}, load time: {del_t:.2f}s"
+                f"loaded memory {memory_id}, size {len(memory)}, load time: {del_t:.2f}s"
             )
 
-            if len(memory) < 60:  # 2.0s of preds
-                logger.info(f"AM: memory len {len(memory)}. Skipped training")
+            if len(memory) < 2 / 0.05:
+                logger.info(f"memory len {len(memory)}. Skipped training")
                 time.sleep(1)
             elif config.adaptation:
                 if config.relabel_method == "LabelSpreading":
                     t_ls = time.perf_counter()
-                    labels = np.argmax(memory.experience_targets, axis=1)
-                    labels[np.argwhere(memory.experience_outcome == "N")] = -1
 
-                    ls = LabelSpreading(kernel="knn", alpha=0.2, n_neighbors=50)
-                    ls.fit(memory.experience_data, labels)
+                    new_p = np.nonzero(np.array(memory.experience_outcome) == "P")
+                    new_n = np.nonzero(np.array(memory.experience_outcome) == "N")
 
-                    current_targets = ls.transduction_
-                    memory.experience_targets = np.eye(len(config.gesture_ids))[
-                        current_targets
-                    ]
-                    del_t_ls = time.perf_counter() - t_ls
-                    logger.info(f"AM: LabelSpreading time: {del_t_ls:.2f} s")
+                    logging.info(
+                        f"Memory len {len(memory)} (P: {len(new_p[0])}, N: {len(new_n[0])})"
+                    )
+
+                    # If everything is wrong, don't Label Spread, instead just train with noisy labels.
+                    if len(new_p[0]) > 0:
+                        # Convert N labels to "-1"
+                        new_labels = np.argmax(memory.experience_targets, axis=1)
+                        new_labels[new_n] = -1
+
+                        # Create new dataset with P+N
+                        adap_labels = np.append(ls_labels, new_labels)
+                        adap_features = np.vstack((ls_features, memory.experience_data))
+
+                        # Extend P dataset
+                        ls_len = len(ls_labels)
+                        ls_labels = np.append(ls_labels, new_labels[new_p])
+                        ls_features = np.vstack(
+                            (ls_features, memory.experience_data[new_p])
+                        )
+
+                        # Fit & predict LS
+                        ls = LabelSpreading(kernel="rbf", alpha=0.2, n_neighbors=50)
+                        ls.fit(adap_features, adap_labels)
+
+                        # Only retrieve the new adap labels
+                        memory.experience_targets = np.eye(len(config.gesture_ids))[
+                            ls.transduction_[ls_len:].astype(np.int32)
+                        ]
+
+                        # Save transducted
+                        memory.write(memory_dir, f"ls_{memory_id}")
+
+                        del_t_ls = time.perf_counter() - t_ls
+                        logger.info(f"LabelSpreading time: {del_t_ls:.2f} s")
 
                 adap_data, adap_labels = (
                     memory.experience_data,
                     memory.experience_targets,
                 )
 
-                # adap_data, adap_labels = resample(
-                #     memory.experience_data,
-                #     memory.experience_targets,
-                #     replace=False,
-                #     n_samples=1000,
-                # )
-
-                # preds = model_to_adapt.predict(adap_data)
-                # acc = accuracy_score(np.argmax(adap_labels, axis=1), preds)
-                # logger.info(f"AM: #{adapt_round+1} pre-acc: {acc*100:.2f}%")
                 correct = memory.experience_outcome.count("P")
                 pre_acc = correct / len(memory.experience_outcome)
-                logger.info(f"AM: #{adapt_round+1} pre-acc: {pre_acc*100:.2f}%")
+                logger.info(f"#{adapt_round+1} pre-acc: {pre_acc*100:.2f}%")
 
                 t1 = time.perf_counter()
                 rets = model_to_adapt.fit(adap_data, adap_labels.astype(np.float32))
@@ -138,9 +177,7 @@ def run_adaptation_manager(
                         [adapt_round, len(memory), pre_acc] + list(rets.values())
                     )
                     csv_file.flush()
-                    logger.info(
-                        f"AM: #{adapt_round} adap-acc: {rets['acc']*100:.2f}%, adap time {del_t:.2f} s"
-                    )
+                    logger.info(f"#{adapt_round} adap time {del_t:.2f} s")
 
                     new_model = copy.deepcopy(model_to_adapt)
 
@@ -159,12 +196,11 @@ def run_adaptation_manager(
 
             # tell MemoryManager we are ready for more adaptation data
             manager_sock.sendto("WAITING".encode(), mem_manager_addr)
-            logger.info("AM: waiting for data")
+            logger.info("waiting for data")
             time.sleep(5)
         except Exception as e:
             logger.error(f"AM: {e}")
-            manager_sock.sendto("STOP".encode(), mem_manager_addr)
             break
     manager_sock.sendto("STOP".encode(), mem_manager_addr)
     memory.write(memory_dir, 1000)
-    logger.info("AM: finished")
+    logger.info("finished")
