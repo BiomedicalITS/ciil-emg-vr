@@ -327,6 +327,7 @@ def get_conf_mat(results: dict, paths: NfcPaths, gesture_ids: list):
     Show confusion matrix from results returned from LibEMG OfflineMetrics
     """
     conf_mat = results["CONF_MAT"] / np.sum(results["CONF_MAT"], axis=1, keepdims=True)
+    conf_mat = np.round(conf_mat, decimals=2)
     test_gesture_names = get_name_from_gid(
         paths.gestures, paths.get_train(), gesture_ids
     )

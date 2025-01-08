@@ -65,7 +65,7 @@ class EmgCNN(L.LightningModule):
                     conv_sizes[i],
                     convlen,
                     padding="same",
-                    padding_mode="circular",
+                    # padding_mode="circular",
                 )
             )
             layers.append(BatchNormNd(conv_sizes[i]))

@@ -278,7 +278,7 @@ def boxplot_pre_post(sensor=EmgSensorType.BioArmband, features="TDPSD"):
         tuple: fig, ax, stats
     """
     stats = []
-    labels = ["Initial", "Post w/o", "Post w/"]
+    labels = ["Initial", "Post - None", "Post - P+N"]
     for i, (adap, pre) in enumerate([(False, True), (False, False), (True, False)]):
         _, results = analysis.load_all_model_eval_metrics(adap, pre, sensor, features)
         ca = analysis.get_overall_eval_metrics(results)["CA"]
@@ -377,9 +377,26 @@ def load_tlx(path: str = "data/nfc-emg-experiment - tlx.csv"):
     return tlx
 
 
+def print_tlx_table():
+    tlx = load_tlx()
+    tlx.drop(columns=["Subject", "Sensor"], inplace=True)
+    tlx_adap = tlx[tlx["Adaptation"] == "Y"]
+    tlx_adap.drop(columns=["Adaptation"], inplace=True)
+    tlx_noadap = tlx[tlx["Adaptation"] == "N"]
+    tlx_noadap.drop(columns=["Adaptation"], inplace=True)
+
+    for d in tlx_noadap.columns:
+        print(
+            f"{d} & ${tlx_noadap[d].mean():.2f} \pm {tlx_noadap[d].std():.2f}$ & ${tlx_adap[d].mean():.2f} \pm {tlx_adap[d].std():.2f}$ \\\\"
+        )
+    print(
+        f"Overall & ${tlx_noadap.mean(None):.2f} \pm {np.mean((tlx_noadap.std())):.2f}$ & ${tlx_adap.mean(None):.2f} \pm {np.mean(tlx_adap.std()):.2f}$ \\\\"
+    )
+
+
 if __name__ == "__main__":
     # log.basicConfig(level=log.INFO)
-    # plt.rcParams.update({"font.size": 20})
+    plt.rcParams.update({"font.size": 32})
 
     # fix_memory_ts()
     # print(get_avg_prediction_dt())
@@ -388,37 +405,25 @@ if __name__ == "__main__":
     # print(ct.groupby(["Adaptation"])["Time"].mean())
     # print(ct.groupby(["Adaptation"])["Time"].std())
 
-    # tlx = load_tlx()
-    # tlx.drop(columns=["Subject", "Sensor"], inplace=True)
-    # tlx_adap = tlx[tlx["Adaptation"] == "Y"]
-    # tlx_adap.drop(columns=["Adaptation"], inplace=True)
-    # tlx_noadap = tlx[tlx["Adaptation"] == "N"]
-    # tlx_noadap.drop(columns=["Adaptation"], inplace=True)
+    # print_tlx_table()
 
-    # for d in tlx_noadap.columns:
-    #     print(
-    #         f"{d} & ${tlx_noadap[d].mean():.2f} \pm {tlx_noadap[d].std():.2f}$ & ${tlx_adap[d].mean():.2f} \pm {tlx_adap[d].std():.2f}$ \\\\"
-    #     )
-    # print(
-    #     f"Overall & ${tlx_noadap.mean(None):.2f} \pm {np.mean((tlx_noadap.std())):.2f}$ & ${tlx_adap.mean(None):.2f} \pm {np.mean(tlx_adap.std()):.2f}$ \\\\"
-    # )
-
-    fig, axs, _ = pointplot_full()
-    fig.tight_layout()
+    # fig, axs, _ = pointplot_full()
+    # fig.tight_layout()
 
     # pointplot_pre_post()
 
-    # fig, axs, stats = boxplot_pre_post()
-    # for stat in stats:
-    #     print(stats)
-    # fig.set_size_inches(16, 9)
-    # plt.savefig("embc2025/figures/boxplot_pre_post.png")
+    fig, axs, stats = boxplot_pre_post()
+    for stat in stats:
+        print(stats)
+    fig.set_size_inches(16, 9)
+    plt.savefig("embc2025/figures/boxplot_pre_post.pdf")
 
-    # plt.rcParams.update({"font.size": 10})
-    # figs = confmat_pre_post()
-    # for i, fig in enumerate(figs):
-    #     fig.figure_.tight_layout()
-    #     fig.figure_.savefig(f"embc2025/figures/confmat_pre_post_{i}.png")
-    # plt.rcParams.update({"font.size": 20})
+    plt.rcParams.update({"font.size": 15})
+    figs = confmat_pre_post()
+    names = ["Initial", "None", "P+N"]
+    for i, fig in enumerate(figs):
+        fig.figure_.tight_layout()
+        fig.figure_.savefig(f"embc2025/figures/confmat_pre_post_{names[i]}.png")
+    plt.rcParams.update({"font.size": 20})
 
-    plt.show()
+    # plt.show()

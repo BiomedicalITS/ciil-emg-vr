@@ -101,25 +101,30 @@ if __name__ == "__main__":
 
     # ========== Data parameters ==========
     sample_data = True
-    # sample_data = False
+    sample_data = False
 
     finetune = False
     # finetune = True
 
     # ========== Experiment parameters ==========
 
-    # subjects = [0, 1, 2, 3, 4, 5, 6, 7, 8]
-    subjects = [0]
+    subjects = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    # subjects = [8]
 
     # steps = [ExperimentStage.FAMILIARIZATION]
     # steps = [ExperimentStage.SG_TRAIN, ExperimentStage.SG_PRE_TEST]
     # steps = [ExperimentStage.SG_PRE_TEST]
-    steps = [ExperimentStage.GAME]
-    # steps = [ExperimentStage.SG_POST_TEST]
-    # steps = [ExperimentStage.SG_PRE_TEST,ExperimentStage.SG_POST_TEST]
+    # steps = [ExperimentStage.GAME]
+    steps = [ExperimentStage.SG_POST_TEST]
+    # steps = [ExperimentStage.SG_PRE_TEST, ExperimentStage.SG_POST_TEST]
+    # steps = [
+    #     ExperimentStage.SG_TRAIN,
+    #     ExperimentStage.SG_PRE_TEST,
+    #     ExperimentStage.SG_POST_TEST,
+    # ]
 
     param_1 = False
-    # param_1 = True
+    param_1 = True
 
     for subject in subjects:
         for step in steps:

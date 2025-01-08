@@ -84,7 +84,11 @@ class SubjectResults:
     def find_memory_ids(self):
         mem_dir = self.config.paths.get_memory()
         files = os.listdir(mem_dir)
-        memories = list(filter(lambda x: x.startswith("classifier_memory"), files))
+        memories = list(
+            filter(
+                lambda x: x.startswith("classifier_memory") and "_ls_" not in x, files
+            )
+        )
         return sorted([int(mem.split("_")[-1].split(".")[0]) for mem in memories])
 
     def load_memory(self, mem_id: int):
