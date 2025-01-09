@@ -20,20 +20,21 @@ def __main():
     # SAMPLE_DATA = True
     # FINETUNE = True
 
+    g.FEATURES = ["MAV"]
+
     sensor = EmgSensor(
         g.SENSOR, window_size_ms=50, window_inc_ms=25, majority_vote_ms=0
     )
 
     # paths = NfcPaths(f"data/{sensor.get_name()}", -1)
-    paths = NfcPaths(f"data/99/{sensor.get_name()}", "adap")
+    paths = NfcPaths(f"data/0/{sensor.get_name()}", "adap")
     paths.gestures = "data/gestures/"
-
+    paths.test = "pre_test/"
     # if not SAMPLE_DATA or FINETUNE:
     #     paths.set_trial(paths.get_next_trial() - 1)
 
     train_dir = paths.get_train()
     test_dir = paths.get_test()
-    test_dir = "data/99/bio/adap/pre_test/"
     fine_dir = paths.get_fine()
 
     # model = models.load_mlp(paths.model)

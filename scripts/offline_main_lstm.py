@@ -46,6 +46,52 @@ class EmgLSTM(nn.Module):
         return out
 
 
+class EmgCnnLstm(nn.Module):
+    def __init__(self, input_channels, lstm_hidden_size, num_classes):
+        super().__init__()
+
+        # CNN Layers
+        self.conv1 = nn.Conv1d(
+            input_channels,
+            32,
+            kernel_size=3,
+            stride=1,
+            padding="same",
+            padding_mode="circular",
+        )
+        self.bnc1 = nn.BatchNorm1d(32)
+        self.conv2 = nn.Conv1d(32, 64, kernel_size=3, stride=1, padding=1)
+        self.bnc2 = nn.BatchNorm1d(64)
+
+        # LSTM Layer
+        self.lstm = nn.LSTM(8, lstm_hidden_size, num_layers=2, batch_first=True)
+
+        # Fully Connected Layer
+        self.fc1 = nn.Linear(lstm_hidden_size, 128)
+        self.bn1 = nn.BatchNorm1d(lstm_hidden_size)
+
+        self.fc2 = nn.Linear(128, 64)
+        self.bn2 = nn.BatchNorm1d(64)
+
+        self.out = nn.Linear(64, num_classes)
+
+    def forward(self, x):
+        # x = (batch, seq_length, input_channels)
+
+        # CNN
+        x = F.relu(self.bnc1(self.conv1(x)))
+        x = F.relu(self.bnc2(self.conv2(x)))
+
+        # LSTM
+        out, _ = self.lstm(x)
+
+        # Fully Connected Layer (use last time step)
+        out = F.dropout(F.relu(self.bn1(self.fc1(out[:, -1, :]))))
+        out = F.dropout(F.relu(self.bn2(self.fc2(out))))
+        out = self.out(out)
+        return out
+
+
 def print_model_size(model):
     total_params = sum(p.numel() for p in model.parameters())
     total_memory = total_params * 4  # Each parameter is 4 bytes (float32)
@@ -66,7 +112,7 @@ def __main():
     )
 
     # paths = NfcPaths(f"data/{sensor.get_name()}", -1)
-    paths = NfcPaths(f"data/99/{sensor.get_name()}", "adap")
+    paths = NfcPaths(f"data/0/{sensor.get_name()}", "adap")
     paths.gestures = "data/gestures/"
     paths.test = "pre_test/"
 
@@ -86,11 +132,12 @@ def __main():
     train_win = np.abs(train_win)
     val_win = np.abs(val_win)
 
-    print(train_win.max(), train_win.std())
-
-    scaling = train_win.mean()
-    train_win /= scaling
-    val_win /= scaling
+    train_win = (train_win - np.mean(train_win, axis=0, keepdims=True)) / np.std(
+        train_win, axis=0, keepdims=True
+    )
+    val_win = (val_win - np.mean(val_win, axis=0, keepdims=True)) / np.std(
+        val_win, axis=0, keepdims=True
+    )
 
     # (N, C, W) -> (N, W, C)
     train_win = np.swapaxes(train_win, 1, 2)
@@ -101,7 +148,8 @@ def __main():
     X_test = torch.tensor(val_win).float()
     y_test = torch.tensor(val_labels).long()
 
-    model = EmgLSTM(np.prod(sensor.emg_shape), 128, 1, len(g.FUNCTIONAL_SET)).to("cuda")
+    # model = EmgLSTM(np.prod(sensor.emg_shape), 128, 2, len(g.FUNCTIONAL_SET)).to("cuda")
+    model = EmgCnnLstm(X_train.shape[1], 128, len(g.FUNCTIONAL_SET)).to("cuda")
 
     print_model_size(model)
 
@@ -113,7 +161,7 @@ def __main():
         shuffle=True,
     )
 
-    n_epochs = 15
+    n_epochs = 30
     for epoch in range(n_epochs):
         model.train()
         for X_batch, y_batch in tqdm(loader, leave=False):
@@ -139,10 +187,11 @@ def __main():
             % (epoch, train_loss, 100 * train_acc, test_loss, 100 * test_acc)
         )
 
-    y_pred_labels = model(X_train.to("cuda")).cpu().argmax(1)
+    with torch.no_grad():
+        y_pred_labels = model(X_test.to("cuda")).cpu().argmax(1)
 
     # Compute confusion matrix
-    cm = confusion_matrix(y_train.numpy(), y_pred_labels.numpy())
+    cm = confusion_matrix(y_test.numpy(), y_pred_labels.numpy())
     cm_normalized = cm.astype("float") / cm.sum(axis=1, keepdims=True)
 
     test_gesture_names = utils.get_name_from_gid(

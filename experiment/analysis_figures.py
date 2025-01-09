@@ -105,7 +105,7 @@ def get_avg_completion_time():
 
 def fix_memory_ts():
     """Get average time between predictions subject-wise. It is normal for memory time to be much longer.
-    This is because the classifier still outputs predictions even when there is not object within grasping distance.
+    This is because the classifier still outputs predictions even when there is no object within grasping distance.
 
     Context is only sent back by Unity when an object is within grasping distance.
 
@@ -398,7 +398,7 @@ if __name__ == "__main__":
     # log.basicConfig(level=log.INFO)
     plt.rcParams.update({"font.size": 32})
 
-    # fix_memory_ts()
+    fix_memory_ts()
     # print(get_avg_prediction_dt())
     # ct = get_avg_completion_time()
     # print(ct)
