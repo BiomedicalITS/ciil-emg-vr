@@ -1,4 +1,7 @@
+from ast import Sub
+from multiprocessing import context
 import os
+from sqlite3 import adapt
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -183,6 +186,226 @@ class SubjectResults:
         logs = pd.DataFrame(rows, columns=cols)
         return logs
 
+    def get_experiment_completion_dz(
+        self, items=["Apple", "FryingPan", "Key", "ChickenLeg", "Cheery", "SmartPhone"]
+    ):
+        """Get the completion of the experiment from the logs.
+
+        Args:
+            logs (pd.DataFrame): Unity logs.
+
+        Returns:
+            float: Completion percentage.
+        """
+        ulogs = self.load_unity_logs(self.find_unity_logs()[0])
+        dt = (
+            float(ulogs["Timestamp"].iat[-1]) - float(ulogs["Timestamp"].iat[0])
+        ) / 1000
+        ret = {"completed": 0, "time": dt, "adap": self.adaptation}
+
+        for i, item in enumerate(items):
+            ilogz = ulogs[f"{item}_z"].astype(float).to_numpy()
+            dz = np.diff(ilogz)
+
+            ilog = np.abs(np.sum(dz))
+            completed = np.any(ilog > 0.5)
+
+            t0, t1, dt = -1, -1, -1
+            if completed:
+                ret["completed"] = i + 1
+
+                # dz[dz < 0.0001] = 0
+                moving = np.nonzero(np.abs(dz) > 0.0001)[0]
+                exp_start = float(ulogs["Timestamp"].iat[0]) / 1000
+                t0 = float(ulogs["Timestamp"].iat[moving[0]]) / 1000 - exp_start
+                t1 = float(ulogs["Timestamp"].iat[moving[-1]]) / 1000 - exp_start
+                dt = t1 - t0
+                if dt < 0.5:
+                    log.warning(
+                        f"Subject {self.subject} very fast completion time for {item} (CIIL={self.adaptation}) = {dt=:.3f} s"
+                    )
+            else:
+                log.warning(
+                    f"Subject {self.subject} did not complete {item} in CIIL = {self.adaptation}"
+                )
+            ret[item] = {
+                "completed": completed,
+                "start": t0,
+                "finish": t1,
+                "time": dt,
+            }
+        if ret["completed"] < len(items):
+            log.info(
+                f"Subject {self.subject} did not complete the experiment CIIL = {self.adaptation} ({ret['completed']} in {ret['time']:.3f} s)"
+            )
+            ret["time"] = 300
+        return ret
+
+    def get_experiment_completion_hand(
+        self, items=["Apple", "FryingPan", "Key", "ChickenLeg", "Cheery", "SmartPhone"]
+    ):
+        """NOT RELIABLE, INSTEAD USE `get_experiment_completion_memory`
+
+        Get the completion of the experiment from the logs, particularly with the hand position vs object.
+
+        Args:
+            logs (pd.DataFrame): Unity logs.
+
+        Returns:
+            float: Completion percentage.
+        """
+        ulogs = self.load_unity_logs(self.find_unity_logs()[0])
+        T = ulogs["Timestamp"].astype(float).to_numpy() / 1000
+
+        ret = {
+            "completed": 0,
+            "adap": self.adaptation,
+            "subject": self.subject,
+        }
+
+        for i, item in enumerate(items):
+            t0, t1, dt = 0, 0, 0
+
+            # Check if item was completed
+            ilogz = ulogs[f"{item}_z"].astype(float).to_numpy()
+            dz = np.diff(ilogz)
+            ilog = np.abs(np.sum(dz))
+            completed = np.any(ilog > 0.5)
+
+            # If yes, get the time it took to complete
+            if completed:
+                ret["completed"] = i + 1
+
+                handpos = np.array(
+                    [
+                        ulogs[f"Hand_{a}"].astype(float).to_numpy()
+                        for a in ["x", "y", "z"]
+                    ]
+                ).T
+                objpos = np.array(
+                    [
+                        ulogs[f"{item}_{a}"].astype(float).to_numpy()
+                        for a in ["x", "y", "z"]
+                    ]
+                ).T
+
+                grabbing = ulogs["Grab"].to_numpy()
+                grabbing[grabbing == "False\n"] = 0
+                grabbing[grabbing == "True\n"] = 1
+                grabbing = grabbing.astype(int)
+
+                distance = np.linalg.norm(handpos - objpos, axis=1)
+                distance[grabbing == 0] = 1000
+
+                where_close = np.nonzero(distance < 0.4)
+                t_close = T[where_close]
+
+                t_start = T[0]
+                try:
+                    t0 = (t_close[0]) - t_start
+                    t1 = (t_close[-1]) - t_start
+                    dt = t1 - t0
+                except:
+                    log.warning(
+                        f"Subject {self.subject} {item} min distance {distance.min()}, {distance.mean()}"
+                    )
+            else:
+                log.warning(
+                    f"Subject {self.subject} did not complete {item} in CIIL = {self.adaptation}"
+                )
+            ret[item] = {
+                "completed": completed,
+                "start": t0,
+                "finish": t1,
+                "time": dt,
+            }
+        if ret["completed"] < len(items):
+            log.info(
+                f"Subject {self.subject} did not complete the experiment CIIL = {self.adaptation} ({ret['completed']})"
+            )
+            ret["time"] = 300
+        else:
+            ret["time"] = np.sum([ret[item]["time"] for item in items])
+        return ret
+
+    def get_experiment_completion_memory(
+        self, items=["Apple", "FryingPan", "Key", "ChickenLeg", "Cheery", "SmartPhone"]
+    ):
+        """Get the completion of the experiment from the logs, particularly with the hand position vs object.
+
+        Args:
+            logs (pd.DataFrame): Unity logs.
+
+        Returns:
+            float: Completion percentage.
+        """
+        mem = self.load_concat_memories(self.subject != 0)
+        ulogs = self.load_unity_logs(self.find_unity_logs()[0])
+
+        t_unity = ulogs["Timestamp"].astype(float).to_numpy() / 1000
+        t_unity -= t_unity[0]
+
+        context_diffs = np.diff(np.sum(np.abs(mem.experience_context), axis=1), axis=0)
+        context_changes = np.nonzero(context_diffs)
+
+        t_mem = np.array(mem.experience_timestamps)
+        t_mem -= t_mem[0]
+        n_invalid = np.count_nonzero(t_mem >= 300)
+        t_mem = t_mem[: -(n_invalid + 1)]
+        mem.experience_outcome = mem.experience_outcome[: -(n_invalid + 1)]
+
+        ret = {
+            "completed": 0,
+            "adap": self.adaptation,
+            "subject": self.subject,
+            "precision": mem.experience_outcome.count("P")
+            / len(mem.experience_outcome),
+        }
+
+        for i, item in enumerate(items):
+            t0, t1, dt = 0, 0, 0
+
+            # Check if item was completed
+            ilogz = ulogs[f"{item}_z"].astype(float).to_numpy()
+            dz = np.diff(ilogz)
+            ilog = np.abs(np.sum(dz))
+            completed = np.any(ilog > 0.5)
+
+            # If yes, get the time it took to complete
+            if completed:
+                ret["completed"] = i + 1
+                ret["completed"] = i + 1
+
+                # dz[dz < 0.0001] = 0
+                moving = np.nonzero(np.abs(dz) > 0.0001)[0]
+                exp_start = float(ulogs["Timestamp"].iat[0]) / 1000
+                t0 = float(ulogs["Timestamp"].iat[moving[0]]) / 1000 - exp_start
+                t1 = float(ulogs["Timestamp"].iat[moving[-1]]) / 1000 - exp_start
+                dt = t1 - t0
+                if dt < 0.5:
+                    log.warning(
+                        f"Subject {self.subject} very fast completion time for {item} (CIIL={self.adaptation}) = {dt=:.3f} s"
+                    )
+            else:
+                log.warning(
+                    f"Subject {self.subject} did not complete {item} in CIIL = {self.adaptation}"
+                )
+            ret[item] = {
+                "completed": completed,
+                "start": t0,
+                "finish": t1,
+                "time": dt,
+            }
+        if ret["completed"] < len(items):
+            log.info(
+                f"Subject {self.subject} did not complete the experiment CIIL = {self.adaptation} ({ret['completed']})"
+            )
+            ret["time"] = 300
+        else:
+            # ret["time"] = np.sum([ret[item]["time"] for item in items])
+            ret["time"] = t_mem[-1]
+        return ret
+
     def get_conf_mat(self):
         results = self.load_model_eval_metrics()
         confmat = utils.get_conf_mat(
@@ -226,7 +449,7 @@ def load_all_model_eval_metrics(
 
 
 def get_overall_eval_metrics(results: list[dict]):
-    """From a list of results, get the overall evaluation metrics."""
+    """From a list of results, get the average evaluation metrics."""
     metrics = {}
     for result in results:
         for k, v in result.items():
@@ -255,6 +478,11 @@ def get_subjects(base: str):
 
 
 def get_dt_logs_vs_memory():
+    """Load all subjects and compare the time between their Unity log files and memory.
+
+    Returns:
+        list: List of dictionaries {'adapt': {'unity': float, 'memory': float}, 'no_adapt': {'unity': float, 'memory': float}}
+    """
     sensor = EmgSensorType.BioArmband
     features = "TDPSD"
     stage = ExperimentStage.SG_POST_TEST
@@ -292,41 +520,20 @@ def get_dt_logs_vs_memory():
     return stimes
 
 
-def analyze_logs_objects():
+def analyze_completion(dir="data/"):
     sensor = EmgSensorType.BioArmband
     features = "TDPSD"
     stage = ExperimentStage.SG_POST_TEST
 
-    objects_completed = []
-    for subject in [0, 1, 2, 3, 4, 5, 6, 7, 8]:
+    stats = []
+    for subject in get_subjects(dir):
+        # print(f"===== {subject=} ======")
         for adap in [False, True]:
-            sr, results_subj = load_model_eval_metrics(
-                subject, sensor, features, stage, adap
-            )
-            ulogs = sr.load_unity_logs(sr.find_unity_logs()[0])
-            for item in [
-                "Apple",
-                "FryingPan",
-                "ChickenLeg",
-                "Key",
-                "Cheery",
-                "Cherry",
-                "SmartPhone",
-            ]:
-                # Only use z axis, about a +/- 1m needed for completion
-                try:
-                    pos0 = float(ulogs[f"{item}_z"].iat[0])
-                    pos1 = float(ulogs[f"{item}_z"].iat[-1])
-                    items_loc = pos1 - pos0
-                except:
-                    continue
-                # print(f"{subject=} {adap=}, {item} {items_loc}")
-                if np.abs(items_loc) < 0.5:
-                    print(
-                        f"{subject=} {adap=}, {item} {items_loc:.3f} ({pos0:.3f} to {pos1:.3f})"
-                    )
-
-    return objects_completed
+            sr = SubjectResults(subject, adap, stage, sensor, features)
+            # if sr.subject not in [3]:
+            #     continue
+            stats.append(sr.get_experiment_completion_memory())
+    return stats
 
 
 def analyze_logs_dir(dir="data/unity/"):
@@ -360,16 +567,45 @@ def main():
     features = "TDPSD"
     stage = ExperimentStage.SG_POST_TEST
 
-    subject = 0
     adaptation = False
 
-    logger = log.getLogger()
-    logger.disabled = True
+    import warnings
 
-    # TODO cleanup logs that go > 300s
-    get_dt_logs_vs_memory()
+    warnings.filterwarnings("ignore")
+
+    completions = analyze_completion()
+
+    completions_na = list(filter(lambda x: not x["adap"], completions))
+    completions_ciil = list(filter(lambda x: x["adap"], completions))
+
+    obj_na = np.mean([c["completed"] for c in completions_na])
+    obj_ciil = np.mean([c["completed"] for c in completions_ciil])
+
+    prec_na = np.mean([c["precision"] for c in completions_na])
+    prec_ciil = np.mean([c["precision"] for c in completions_ciil])
+
+    ct_na = np.mean([comp["time"] for comp in completions_na])
+    ct_ciil = np.mean([comp["time"] for comp in completions_ciil])
+
+    score_na = (
+        np.mean([c["completed"] * c["precision"] / c["time"] for c in completions_na])
+        * 150
+        / 6
+    )
+    score_ciil = (
+        np.mean([c["completed"] * c["precision"] / c["time"] for c in completions_ciil])
+        * 150
+        / 6
+    )
+
+    print(f"Average objects NA = {obj_na:.3f}, CIIL = {obj_ciil:.3f}")
+    print(f"Average completion time NA = {ct_na:.3f} s, CIIL = {ct_ciil:.3f} s")
+    print(f"Average precsision NA = {100*prec_na:.2f} %, CIIL = {100*prec_ciil:.2f} %")
+    print(f"Average score NA = {score_na:.3f}, CIIL = {score_ciil:.3f}")
+
+    # TODO cleanup memories that go > 300s
+    # get_dt_logs_vs_memory()
     # analyze_logs_dir()
-    # analyze_logs_objects()
     exit()
 
     # memory0 = sr.load_memory(0)
@@ -392,33 +628,11 @@ def main():
     # )
     # exit()
     # srs, _ = load_all_model_eval_metrics(False, False)
-    # for sr in srs:
-    #     # TODO ignore initial training data
-    #     memory0 = sr.load_memory(0)
-    #     memory = sr.load_memory(1000)
-    #     print(len(memory0), len(memory))
-    #     outcomes = memory.experience_outcome[len(memory0) :]
-    #     print(
-    #         f"P{sr.config.subject_id} Accuracy: {100 * outcomes.count('P') / len(outcomes)} ({len(outcomes)})"
-    #     )
-
-    # sr.get_conf_mat()
-    # sr.set_stage(ExperimentStage.SG_POST_TEST)
-    # sr.get_conf_mat()
-
-    # srs, results = load_all_model_eval_metrics(
-    #     True,
-    #     True,
-    #     EmgSensorType.BioArmband,
-    #     "TDPSD",
-    # )
-    # results = get_overall_eval_metrics(results)
-    # utils.get_conf_mat(results, config.paths, config.gesture_ids)
 
     plt.show()
 
 
 if __name__ == "__main__":
-    log.basicConfig(level=log.INFO)
+    # log.basicConfig(level=log.INFO)
     # print(main_verify_avg_dt())
     main()

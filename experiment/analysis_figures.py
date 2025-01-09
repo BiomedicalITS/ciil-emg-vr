@@ -410,8 +410,8 @@ if __name__ == "__main__":
     # fig, axs, _ = pointplot_full()
     # fig.tight_layout()
 
-    # pointplot_pre_post()
-
+    pointplot_full()
+    plt.show()
     fig, axs, stats = boxplot_pre_post()
     for stat in stats:
         print(stats)
