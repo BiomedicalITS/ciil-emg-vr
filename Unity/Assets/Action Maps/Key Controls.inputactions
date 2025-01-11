@@ -1,0 +1,94 @@
+{
+    "name": "Key Controls",
+    "maps": [
+        {
+            "name": "PlayerMovement",
+            "id": "30173837-a7c7-4976-bef3-22afbee3059b",
+            "actions": [
+                {
+                    "name": "RightMovement",
+                    "type": "Value",
+                    "id": "e4fa7dd4-b4d1-40e8-ba59-22a832ae7ada",
+                    "expectedControlType": "Axis",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": true
+                },
+                {
+                    "name": "LeftMovement",
+                    "type": "Value",
+                    "id": "2abc4de8-0b2d-4c4d-b798-398a1dcf8145",
+                    "expectedControlType": "Axis",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": true
+                },
+                {
+                    "name": "UpMovement",
+                    "type": "Value",
+                    "id": "c3f6846c-44b0-414f-a2dd-855e4dae3f7d",
+                    "expectedControlType": "Axis",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": true
+                },
+                {
+                    "name": "DownMovement",
+                    "type": "Value",
+                    "id": "687e6a55-9af9-4883-b910-8867e16fa35a",
+                    "expectedControlType": "Axis",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": true
+                }
+            ],
+            "bindings": [
+                {
+                    "name": "",
+                    "id": "9a627c9b-98bc-4721-8b32-e7a19b4ec6c6",
+                    "path": "<Keyboard>/rightArrow",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "RightMovement",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "2432de48-6380-4363-955e-208293153f12",
+                    "path": "<Keyboard>/upArrow",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "UpMovement",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "714fd5ff-60ef-42e7-b6f6-292793a2f4a2",
+                    "path": "<Keyboard>/downArrow",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "DownMovement",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "0db718a8-e544-47d4-8827-8ffa2698b421",
+                    "path": "<Keyboard>/leftArrow",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "LeftMovement",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                }
+            ]
+        }
+    ],
+    "controlSchemes": []
+}

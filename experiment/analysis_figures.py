@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import logging as log
-
+import seaborn as sns
 
 from memory import Memory
 from nfc_emg.sensors import EmgSensorType
@@ -11,6 +11,8 @@ from nfc_emg import utils
 
 from experiment import analysis
 from experiment.config import ExperimentStage
+
+COLORS = sns.color_palette("deep")
 
 
 def get_avg_prediction_dt():
@@ -53,54 +55,6 @@ def get_avg_prediction_dt():
                 f"Prediction dt={1000*dt[(subject, adaptation)][0]:.3f} ms, Memory dt={1000*dt[(subject, adaptation)][1]:.3f} ms"
             )
     return dt
-
-
-def get_avg_completion_time():
-    """Get average time between predictions subject-wise. It is normal for memory time to be much longer.
-    This is because the classifier still outputs predictions even when there is not object within grasping distance.
-
-    Context is only sent back by Unity when an object is within grasping distance.
-
-    Returns:
-        dict: (subject, adaptation) -> (prediction dt, memory dt)
-    """
-    sensor = EmgSensorType.BioArmband
-    features = "TDPSD"
-    stage = ExperimentStage.GAME
-
-    dt = {
-        "Subject": [],
-        "Adaptation": [],
-        "Time": [],
-    }
-    for subject in analysis.get_subjects("data/"):
-        for adaptation in [False, True]:
-            log.info(f"Loading {subject=}, {adaptation=}")
-            sr = analysis.SubjectResults(
-                subject,
-                adaptation,
-                stage,
-                sensor,
-                features,
-            )
-            mems = sr.find_memory_ids()
-            mems.remove(0)
-            mems.remove(1000)
-
-            mem1 = sr.load_memory(mems[0])
-            memn = sr.load_memory(mems[-1])
-
-            # print(
-            #     np.min(mem1.experience_timestamps), np.max(memn.experience_timestamps)
-            # )
-
-            dt["Subject"].append(subject)
-            dt["Adaptation"].append(adaptation)
-            dt["Time"].append(
-                memn.experience_timestamps[-1] - mem1.experience_timestamps[0]
-            )
-
-    return pd.DataFrame(dt)
 
 
 def fix_memory_ts():
@@ -278,7 +232,7 @@ def boxplot_pre_post(sensor=EmgSensorType.BioArmband, features="TDPSD"):
         tuple: fig, ax, stats
     """
     stats = []
-    labels = ["Initial", "Post - None", "Post - P+N"]
+    labels = ["Initial", "NA", "CIIL"]
     for i, (adap, pre) in enumerate([(False, True), (False, False), (True, False)]):
         _, results = analysis.load_all_model_eval_metrics(adap, pre, sensor, features)
         ca = analysis.get_overall_eval_metrics(results)["CA"]
@@ -314,40 +268,54 @@ def boxplot_pre_post(sensor=EmgSensorType.BioArmband, features="TDPSD"):
     for i, stat in enumerate(stats):
         bplot["boxes"][i].set_facecolor("lightblue")
 
-        # tlx = load_tlx()
-        # if i == 1:
-        #     tlx = tlx[tlx["Adaptation"] == "N"]
-        # elif i == 2:
-        #     tlx = tlx[tlx["Adaptation"] == "Y"]
-        # else:
-        #     continue
-
-        # index = [False, True][i - 1]
-
-        # tlx.drop(columns=["Subject", "Adaptation", "Sensor"], inplace=True)
-
-        # ax.text(
-        #     i + 1,
-        #     104,
-        #     f"NASA-TLX: {tlx.mean(None):.2f} ± {tlx.std().mean(None):.2f}",
-        #     ha="center",
-        # )
-        # ct = get_avg_completion_time().groupby(["Adaptation"])["Time"]
-        # ct_mean = ct.mean()
-        # ct_std = ct.std()
-
-        # ax.text(
-        #     i + 1,
-        #     101,
-        #     f"Task time: {ct_mean[index]:.2f} ± {ct_std[index]:.2f} s",
-        #     ha="center",
-        # )
-
     ax.set_xlabel("Test case")
     ax.set_ylabel("Classification Accuracy (%)")
     ax.grid(True)
 
     return fig, ax, stats
+
+
+def barplot_pre_post(sensor=EmgSensorType.BioArmband, features="TDPSD"):
+    """Create a boxplot figure with three boxes: initial test, post-test without adaptation, post-test with adaptation.
+
+    Args:
+        sensor (_type_, optional): Sensor used. Defaults to EmgSensorType.BioArmband.
+        features (str, optional): Feature set used. Defaults to "TDPSD".
+
+    Returns:
+        tuple: fig, ax, stats
+    """
+    cas = []
+    trials = []
+
+    labels = ["Initial", "NA", "CIIL"]
+    for i, (adap, pre) in enumerate([(False, True), (False, False), (True, False)]):
+        _, results = analysis.load_all_model_eval_metrics(adap, pre, sensor, features)
+        ca = analysis.get_overall_eval_metrics(results)["CA"]
+        ca = [c * 100 for c in ca]
+        trial = [labels[i]] * len(ca)
+
+        cas.extend(ca)
+        trials.extend(trial)
+
+    data = pd.DataFrame({"accuracy": cas, "trial": trials})
+
+    cp = sns.catplot(
+        data,
+        x="trial",
+        y="accuracy",
+        kind="bar",
+        palette=COLORS,
+        err_kws={"linewidth": 3},
+        capsize=0.1,
+        # alpha=0.8,
+    )
+    cp.despine(left=True)
+    cp.set(ylim=(60, 90))
+    cp.set_ylabels("Classification Accuracy (%)")
+    cp.set_axis_labels("", "Classification Accuracy (%)")
+
+    return cp, data
 
 
 def confmat_pre_post(sensor=EmgSensorType.BioArmband, features="TDPSD"):
@@ -370,6 +338,45 @@ def confmat_pre_post(sensor=EmgSensorType.BioArmband, features="TDPSD"):
         confmats = np.sum(metrics["CONF_MAT"], axis=0) / len(metrics["CONF_MAT"])
         figs.append(utils.get_conf_mat({"CONF_MAT": confmats}, paths, gest_ids))
     return figs
+
+
+def barplot_online(sensor=EmgSensorType.BioArmband, features="TDPSD"):
+    """Create a barplot figure.
+
+    Args:
+        sensor (_type_, optional): Sensor used. Defaults to EmgSensorType.BioArmband.
+        features (str, optional): Feature set used. Defaults to "TDPSD".
+
+    Returns:
+        tuple: fig, ax, stats
+    """
+
+    completions = analysis.analyze_completion(sensor=sensor, features=features)
+    metrics = analysis.extract_online_metrics(completions)
+
+    ms = ["n_items", "time_per_item"]
+    cute_names = ["Items completed", "Average time per item (s)"]
+    fig, axs = plt.subplots(1, len(ms))
+
+    axs: list[plt.Axes]
+    for i, m in enumerate(ms):
+        sns.barplot(
+            data=metrics,
+            x="trial",
+            y=m,
+            palette=COLORS[1:],
+            err_kws={"linewidth": 3},
+            capsize=0.1,
+            # alpha=0.8,
+            ax=axs[i],
+        )
+        axs[i].set_ylabel(cute_names[i])
+        axs[i].spines["right"].set_visible(False)
+        axs[i].spines["top"].set_visible(False)
+        axs[i].spines["left"].set_visible(False)
+        axs[i].set_xlabel("")
+
+    return (fig, axs, metrics)
 
 
 def load_tlx(path: str = "data/nfc-emg-experiment - tlx.csv"):
@@ -398,32 +405,41 @@ if __name__ == "__main__":
     # log.basicConfig(level=log.INFO)
     plt.rcParams.update({"font.size": 32})
 
-    fix_memory_ts()
+    # fix_memory_ts()
     # print(get_avg_prediction_dt())
-    # ct = get_avg_completion_time()
-    # print(ct)
-    # print(ct.groupby(["Adaptation"])["Time"].mean())
-    # print(ct.groupby(["Adaptation"])["Time"].std())
 
     # print_tlx_table()
 
     # fig, axs, _ = pointplot_full()
     # fig.tight_layout()
 
-    pointplot_full()
-    plt.show()
-    fig, axs, stats = boxplot_pre_post()
-    for stat in stats:
-        print(stats)
-    fig.set_size_inches(16, 9)
-    plt.savefig("embc2025/figures/boxplot_pre_post.pdf")
+    # pointplot_full()
+    # plt.show()
 
-    plt.rcParams.update({"font.size": 15})
-    figs = confmat_pre_post()
-    names = ["Initial", "None", "P+N"]
-    for i, fig in enumerate(figs):
-        fig.figure_.tight_layout()
-        fig.figure_.savefig(f"embc2025/figures/confmat_pre_post_{names[i]}.png")
-    plt.rcParams.update({"font.size": 20})
+    sns.set_style()
+
+    sns.set_theme(context="paper", style="whitegrid", font_scale=4.7)
+
+    cp, stats = barplot_pre_post()
+    cp.figure.set_size_inches(16, 9)
+    cp.figure.tight_layout()
+    plt.savefig("embc2025/figures/barplot_pre_post.pdf")
+    plt.savefig("embc2025/figures/barplot_pre_post.png")
+    # plt.show()
+
+    fig, axs, stats = barplot_online()
+    fig.set_size_inches(24, 12)
+    fig.tight_layout(h_pad=2.0)
+    plt.savefig("embc2025/figures/barplot_online.pdf")
+    plt.savefig("embc2025/figures/barplot_online.png")
+    plt.show()
+
+    # plt.rcParams.update({"font.size": 15})
+    # figs = confmat_pre_post()
+    # names = ["Initial", "None", "P+N"]
+    # for i, fig in enumerate(figs):
+    #     fig.figure_.tight_layout()
+    #     fig.figure_.savefig(f"embc2025/figures/confmat_pre_post_{names[i]}.png")
+    # plt.rcParams.update({"font.size": 20})
 
     # plt.show()

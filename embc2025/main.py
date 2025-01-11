@@ -6,13 +6,14 @@ import sifi_bridge_py as sbp
 
 # GESTURES = ["Hand_Close", "Chuck_Grip", "No_Motion", "Index_Pinch"]
 GESTURES = ["Hand_Close"]
-DATA_PATH = "paper/data/emg_data_example_%s.csv"
-FIG_PATH = "paper/figures/emg_data_example_%s.png"
+DATA_PATH = "embc2025/data/emg_data_example_%s.csv"
+FIG_PATH = "embc2025/figures/emg_data_example_%s.png"
 
 
 def sample():
     sb = sbp.SifiBridge()
-    sb.connect("BioArmband")
+    while not sb.connect("BioArmband"):
+        print("Connecting...")
     sb.set_memory_mode("streaming")
     sb.set_channels(emg=True)
     sb.set_filters(True)
@@ -32,7 +33,7 @@ def sample():
             sb.get_emg()
             if time.time() - t0 > 0.5:
                 break
-
+        print("GO!")
         # Start acquisition
         t0 = time.time()
         while time.time() - t0 < 2:
@@ -94,7 +95,7 @@ def plot_data():
         # (9, n_samples)
         data = np.loadtxt(DATA_PATH % gesture, delimiter=",")
         t = data[0]
-        data = data[1:] * 1e6  # mV
+        data = data[1:] * 1e6  # uV
         # (8, n_samples)
         # data = np.mean(np.abs(data), keepdims=True, axis=1)
         # reordering
@@ -103,13 +104,27 @@ def plot_data():
         print(np.max(data))
 
         # Plot and format
-        fig, ax = plt.subplots()
-        plt.plot(t, data.T)
+        fig, axes = plt.subplots(8, 1, figsize=(16, 9), sharex=True)
+        colors = ["blue", "orange", "green", "red", "purple", "brown", "pink", "gray"]
+        for i in range(8):
+            axes[i].plot(t, data[i, :], color=colors[i])
+            # axes[i].spines["left"].set_linewidth(0.5)
+            # axes[i].spines["bottom"].set_linewidth(0.5)
+            axes[i].tick_params(axis="y", labelsize=8)  # Small y-axis ticks
+            axes[i].set_yticks([])  # Optional: Remove y-axis ticks for a clean look
+            axes[i].set_xticks([])
+            axes[i].grid(False)  # Optional: Disable grid for clean lines
+
+        # Common x-axis label
+        # axes[-1].set_xlabel("Time (s)")
+
+        # Adjust layout
+        plt.tight_layout()
+        plt.savefig(FIG_PATH % gesture, bbox_inches="tight", dpi=400)
         plt.show()
-        # plt.savefig(FIG_PATH % gesture, bbox_inches="tight", dpi=400)
 
 
 if __name__ == "__main__":
     # sample()
-    plot_heatmap()
-    # plot_data()
+    # plot_heatmap()
+    plot_data()

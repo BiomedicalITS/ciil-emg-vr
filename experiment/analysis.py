@@ -1,18 +1,17 @@
-from ast import Sub
-from multiprocessing import context
 import os
-from sqlite3 import adapt
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import json
 import logging as log
+from scipy.signal import correlate
 
 from sklearn.metrics import accuracy_score
 
 from libemg.feature_extractor import FeatureExtractor
 
 
+from nfc_emg.schemas import OBJECT_TO_CONTEXT
 from nfc_emg.sensors import EmgSensorType
 from nfc_emg import utils
 
@@ -121,6 +120,9 @@ class SubjectResults:
         memory = Memory()
         for mem in mems:
             memory += self.load_memory(mem)
+
+        memory.experience_outcome = np.array(memory.experience_outcome)
+        memory.experience_timestamps = np.array(memory.experience_timestamps)
         return memory
 
     def load_predictions(self):
@@ -162,7 +164,7 @@ class SubjectResults:
         return [base + log for log in logs]
 
     def load_unity_logs(self, file: str):
-        """Load unity logs from `file`.
+        """Load unity logs from `file`. The positional logs are separated into 3 columns (x, y, z).
 
         Args:
             file (str): Path to the unity log file to load.
@@ -176,13 +178,15 @@ class SubjectResults:
         header = logs[0].strip().split("\t")
         cols = []
         for h in header:
-            if h in ["Timestamp", "Gaze", "Grab"]:
+            if h in ["Timestamp", "Grab", "Gaze"]:
                 cols.append(h)
             else:
                 cols.append(f"{h}_x")
                 cols.append(f"{h}_y")
                 cols.append(f"{h}_z")
-        rows = list(map(lambda x: x.replace(",", "\t").split("\t"), logs[1:]))
+        rows = list(
+            map(lambda x: x.replace(",", "\t").replace("\n", "").split("\t"), logs[1:])
+        )
         logs = pd.DataFrame(rows, columns=cols)
         return logs
 
@@ -339,57 +343,120 @@ class SubjectResults:
         Returns:
             float: Completion percentage.
         """
+
+        t_pred, preds, _ = self.load_predictions()
+        unity = self.load_unity_logs(self.find_unity_logs()[0]).drop(columns=["Gaze"])
         mem = self.load_concat_memories(self.subject != 0)
-        ulogs = self.load_unity_logs(self.find_unity_logs()[0])
 
-        t_unity = ulogs["Timestamp"].astype(float).to_numpy() / 1000
-        t_unity -= t_unity[0]
-
-        context_diffs = np.diff(np.sum(np.abs(mem.experience_context), axis=1), axis=0)
-        context_changes = np.nonzero(context_diffs)
-
+        t_unity = unity["Timestamp"].astype(float).to_numpy() / 1000
         t_mem = np.array(mem.experience_timestamps)
-        t_mem -= t_mem[0]
-        n_invalid = np.count_nonzero(t_mem >= 300)
-        t_mem = t_mem[: -(n_invalid + 1)]
-        mem.experience_outcome = mem.experience_outcome[: -(n_invalid + 1)]
+
+        # find first idx where context = P and grab = True
+        first_grab_unity = unity["Grab"].idxmax()
+        first_grab_mem = np.nonzero(mem.experience_outcome == "P")[0][0]
+        first_grab_pred = np.argwhere(t_pred == t_mem[first_grab_mem])[0][0]
+
+        # align
+        t_mem -= t_mem[first_grab_mem]
+        t_unity -= t_unity[first_grab_unity]
+        t_pred -= t_pred[first_grab_pred]
+
+        # find outliers
+        n_invalid_mem = np.count_nonzero(t_mem >= 300)
+        n_invalid_unity = np.count_nonzero(t_unity >= 300)
+        n_invalid_pred = np.count_nonzero(t_pred >= 300)
+
+        # remove outliers
+        t_mem = t_mem[first_grab_mem : -(n_invalid_mem + 1)]
+        t_unity = t_unity[first_grab_unity : -(n_invalid_unity + 1)]
+        t_pred = t_pred[first_grab_pred : -(n_invalid_pred + 1)]
+
+        unity = unity[first_grab_unity : -(n_invalid_unity + 1)]
+        preds = preds[first_grab_pred : -(n_invalid_pred + 1)]
+
+        grabbing = unity["Grab"].to_numpy()
+        grabbing[grabbing == "False"] = 0
+        grabbing[grabbing == "True"] = 1
+        grabbing = grabbing.astype(int)
+
+        outcomes = mem.experience_outcome[first_grab_mem : -(n_invalid_mem + 1)]
+        outcomes[outcomes == "P"] = 1
+        outcomes[outcomes == "N"] = 0
+        outcomes = outcomes.astype(int)
+
+        instab_preds = []
+        prec_preds = []
+        n_preds = []
 
         ret = {
             "completed": 0,
             "adap": self.adaptation,
             "subject": self.subject,
-            "precision": mem.experience_outcome.count("P")
-            / len(mem.experience_outcome),
         }
-
         for i, item in enumerate(items):
             t0, t1, dt = 0, 0, 0
 
             # Check if item was completed
-            ilogz = ulogs[f"{item}_z"].astype(float).to_numpy()
+            ilogz = unity[f"{item}_z"].astype(float).to_numpy()
             dz = np.diff(ilogz)
             ilog = np.abs(np.sum(dz))
             completed = np.any(ilog > 0.5)
 
             # If yes, get the time it took to complete
+
+            moving = np.nonzero(np.abs(dz) > 0.0001)[0]
+            moving = moving[grabbing[moving] == 1]
+
+            ret[item] = {
+                "completed": completed,
+                "start": t0,
+                "finish": t1,
+                "time": dt,
+            }
+
+            if len(moving) == 0:
+                log.info(f"Subject {self.subject} did not move {item}")
+                continue
+
             if completed:
                 ret["completed"] = i + 1
-                ret["completed"] = i + 1
-
-                # dz[dz < 0.0001] = 0
-                moving = np.nonzero(np.abs(dz) > 0.0001)[0]
-                exp_start = float(ulogs["Timestamp"].iat[0]) / 1000
-                t0 = float(ulogs["Timestamp"].iat[moving[0]]) / 1000 - exp_start
-                t1 = float(ulogs["Timestamp"].iat[moving[-1]]) / 1000 - exp_start
-                dt = t1 - t0
-                if dt < 0.5:
-                    log.warning(
-                        f"Subject {self.subject} very fast completion time for {item} (CIIL={self.adaptation}) = {dt=:.3f} s"
-                    )
+                t1 = t_unity[moving[-1]]
             else:
+                item_pos = []
+                hand_pos = []
+                for a in ["x", "y", "z"]:
+                    item_pos.append(unity[f"{item}_{a}"].astype(float).to_numpy())
+                    hand_pos.append(unity[f"Hand_{a}"].astype(float).to_numpy())
+
+                item_pos = np.array(item_pos).T
+                hand_pos = np.array(hand_pos).T
+                distance = np.linalg.norm(item_pos - hand_pos, axis=1)
+                t1 = t_unity[
+                    np.nonzero(distance < np.percentile(distance, 0.15))[0][-1]
+                ]
+
+            context = OBJECT_TO_CONTEXT[item]
+            t0 = t_unity[moving[0]]
+
+            if t1 < t0:
+                continue
+
+            preds_moving = preds[(t_pred >= t0) & (t_pred <= t1)]
+
+            n_preds.append(len(preds_moving))
+
+            ins_moving = np.sum(np.diff(preds_moving) != 0)
+            instab_preds.append(ins_moving)
+
+            prec_moving = np.sum(np.isin(preds_moving, context).astype(int))
+            prec_preds.append(prec_moving)
+
+            dt = t1 - t0
+            if dt < 0.5:
                 log.warning(
-                    f"Subject {self.subject} did not complete {item} in CIIL = {self.adaptation}"
+                    f"Subject {self.subject} very fast completion time for {item} (CIIL={self.adaptation}) = {dt=:.3f} s"
                 )
+
             ret[item] = {
                 "completed": completed,
                 "start": t0,
@@ -397,13 +464,26 @@ class SubjectResults:
                 "time": dt,
             }
         if ret["completed"] < len(items):
-            log.info(
+            log.warning(
                 f"Subject {self.subject} did not complete the experiment CIIL = {self.adaptation} ({ret['completed']})"
             )
             ret["time"] = 300
         else:
             # ret["time"] = np.sum([ret[item]["time"] for item in items])
-            ret["time"] = t_mem[-1]
+            ret["time"] = ret[items[-1]]["finish"]
+
+        inst, preci = 0, 0
+        for i, ins in enumerate(instab_preds):
+            inst += ins
+        for i, prec in enumerate(prec_preds):
+            preci += prec
+        ret["instability"] = inst / sum(n_preds)
+        ret["precision"] = preci / sum(n_preds)
+
+        # print(
+        #     f"{self.subject} obj completed = {ret['completed']}, ctx changes = {len(context_changes)}"
+        # )
+
         return ret
 
     def get_conf_mat(self):
@@ -520,9 +600,7 @@ def get_dt_logs_vs_memory():
     return stimes
 
 
-def analyze_completion(dir="data/"):
-    sensor = EmgSensorType.BioArmband
-    features = "TDPSD"
+def analyze_completion(dir="data/", sensor=EmgSensorType.BioArmband, features="TDPSD"):
     stage = ExperimentStage.SG_POST_TEST
 
     stats = []
@@ -534,6 +612,36 @@ def analyze_completion(dir="data/"):
             #     continue
             stats.append(sr.get_experiment_completion_memory())
     return stats
+
+
+def extract_online_metrics(completions: dict) -> pd.DataFrame:
+    trials = ["CIIL" if c["adap"] else "NA" for c in completions]
+    completed = [c["completed"] for c in completions]
+
+    t_per_obj = []
+    for c in completions:
+        if c["completed"] > 0:
+            t_per_obj.append(c["time"] / c["completed"])
+        else:
+            t_per_obj.append(300)
+    n_obj = [c["completed"] for c in completions]
+    prec = [100 * c["precision"] for c in completions]
+    ins = [c["instability"] for c in completions]
+    ct = [c["time"] for c in completions]
+    score_na = [10 * p / (i * t) for p, i, t in zip(prec, ins, t_per_obj)]
+
+    return pd.DataFrame(
+        {
+            "trial": trials,
+            "completed": completed,
+            "n_items": n_obj,
+            "time_per_item": t_per_obj,
+            "accuracy": prec,
+            "instability": ins,
+            "completion_time": ct,
+            "score": score_na,
+        }
+    )
 
 
 def analyze_logs_dir(dir="data/unity/"):
@@ -567,67 +675,39 @@ def main():
     features = "TDPSD"
     stage = ExperimentStage.SG_POST_TEST
 
-    adaptation = False
+    adaptation = True
 
     import warnings
+    from nfc_emg.schemas import OBJECT_TO_CONTEXT
 
     warnings.filterwarnings("ignore")
 
-    completions = analyze_completion()
+    # sr = SubjectResults(0, adaptation, stage, sensor, features)
+    # mem = sr.load_concat_memories(False)
+    # context = np.sum(np.abs(mem.experience_context), axis=1)
+    # for k, ctx in OBJECT_TO_CONTEXT.items():
+    #     whr = np.nonzero(context == np.sum(np.abs(ctx)))[0]
+    #     print(
+    #         f"{k}: {mem.experience_timestamps[whr[-1]] - mem.experience_timestamps[whr[0]]}"
+    #     )
 
+    # context_diffs = np.diff(np.sum(np.power(mem.experience_context, 2), axis=1), axis=0)
+    # context_changes = np.nonzero(context_diffs)[0]
+
+    completions = analyze_completion()
     completions_na = list(filter(lambda x: not x["adap"], completions))
     completions_ciil = list(filter(lambda x: x["adap"], completions))
+    ct_na = [c["time"] for c in completions_na]
+    ct_ciil = [c["time"] for c in completions_ciil]
 
-    obj_na = np.mean([c["completed"] for c in completions_na])
-    obj_ciil = np.mean([c["completed"] for c in completions_ciil])
-
-    prec_na = np.mean([c["precision"] for c in completions_na])
-    prec_ciil = np.mean([c["precision"] for c in completions_ciil])
-
-    ct_na = np.mean([comp["time"] for comp in completions_na])
-    ct_ciil = np.mean([comp["time"] for comp in completions_ciil])
-
-    score_na = (
-        np.mean([c["completed"] * c["precision"] / c["time"] for c in completions_na])
-        * 150
-        / 6
+    print(
+        f"Average time NA = {np.mean(ct_na):.2f} \pm {np.std(ct_na):.2f} s, CIIL = {np.mean(ct_ciil):.2f} \pm {np.std(ct_ciil):.2f} s"
     )
-    score_ciil = (
-        np.mean([c["completed"] * c["precision"] / c["time"] for c in completions_ciil])
-        * 150
-        / 6
-    )
-
-    print(f"Average objects NA = {obj_na:.3f}, CIIL = {obj_ciil:.3f}")
-    print(f"Average completion time NA = {ct_na:.3f} s, CIIL = {ct_ciil:.3f} s")
-    print(f"Average precsision NA = {100*prec_na:.2f} %, CIIL = {100*prec_ciil:.2f} %")
-    print(f"Average score NA = {score_na:.3f}, CIIL = {score_ciil:.3f}")
 
     # TODO cleanup memories that go > 300s
     # get_dt_logs_vs_memory()
     # analyze_logs_dir()
     exit()
-
-    # memory0 = sr.load_memory(0)
-    # memory = sr.load_memory(1000)
-    # print(len(memory0), len(memory))
-    # outcomes = memory.experience_outcome[len(memory0) :]
-    # print(
-    #     f"P{sr.config.subject_id} Accuracy: {100 * outcomes.count('P') / len(outcomes)} ({len(outcomes)})"
-    # )
-
-    # memory0 = sr.load_memory(0)
-    # memory = sr.load_memory(1000)
-    # print(len(memory0), len(memory))
-    # outcomes = memory.experience_outcome[len(memory0) :]
-    # print(
-    #     f"P{sr.config.subject_id} Accuracy: {100 * outcomes.count('P') / len(outcomes)} ({len(outcomes)})"
-    # )
-    # print(
-    #     f"dt between memory {np.mean(np.diff(memory.experience_timestamps[len(memory0):]))}"
-    # )
-    # exit()
-    # srs, _ = load_all_model_eval_metrics(False, False)
 
     plt.show()
 
