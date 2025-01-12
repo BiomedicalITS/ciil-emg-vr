@@ -605,6 +605,8 @@ def analyze_completion(dir="data/", sensor=EmgSensorType.BioArmband, features="T
 
     stats = []
     for subject in get_subjects(dir):
+        # if subject == 1:
+        #     continue
         # print(f"===== {subject=} ======")
         for adap in [False, True]:
             sr = SubjectResults(subject, adap, stage, sensor, features)
@@ -644,6 +646,18 @@ def extract_online_metrics(completions: dict) -> pd.DataFrame:
     )
 
 
+def extract_offline_metrics():
+    offline_metrics = {}
+    for i, (adap, pre) in enumerate([(False, True), (False, False), (True, False)]):
+        offline_results = load_all_model_eval_metrics(adap, pre)[1]
+        ca = get_overall_eval_metrics(offline_results)["CA"]
+        ca = [c * 100 for c in ca]
+
+        offline_metrics[f"{'CIIL' if adap else 'NA'}_{'pre' if pre else 'post'}"] = ca
+    offline_metrics = pd.DataFrame(offline_metrics)
+    return offline_metrics
+
+
 def analyze_logs_dir(dir="data/unity/"):
     files = os.listdir(dir)
     logfiles = sorted(list(filter(lambda x: x.startswith("OL"), files)))
@@ -678,7 +692,6 @@ def main():
     adaptation = True
 
     import warnings
-    from nfc_emg.schemas import OBJECT_TO_CONTEXT
 
     warnings.filterwarnings("ignore")
 
@@ -695,14 +708,24 @@ def main():
     # context_changes = np.nonzero(context_diffs)[0]
 
     completions = analyze_completion()
-    completions_na = list(filter(lambda x: not x["adap"], completions))
-    completions_ciil = list(filter(lambda x: x["adap"], completions))
-    ct_na = [c["time"] for c in completions_na]
-    ct_ciil = [c["time"] for c in completions_ciil]
+    metrics = extract_online_metrics(completions)
+    trial_metrics = metrics.groupby("trial")
+    online_metrics = {
+        "n_items_na": metrics[metrics["trial"] == "NA"]["n_items"].to_list(),
+        "n_items_ciil": metrics[metrics["trial"] == "CIIL"]["n_items"].to_list(),
+        "time_per_item_na": metrics[metrics["trial"] == "NA"][
+            "time_per_item"
+        ].to_list(),
+        "time_per_item_ciil": metrics[metrics["trial"] == "CIIL"][
+            "time_per_item"
+        ].to_list(),
+    }
+    om = pd.DataFrame(online_metrics)
+    om.to_csv("embc2025/data/online_metrics.csv", index=False)
 
-    print(
-        f"Average time NA = {np.mean(ct_na):.2f} \pm {np.std(ct_na):.2f} s, CIIL = {np.mean(ct_ciil):.2f} \pm {np.std(ct_ciil):.2f} s"
-    )
+    # print(
+    #     f"Average time NA = {np.mean(ct_na):.2f} \pm {np.std(ct_na):.2f} s, CIIL = {np.mean(ct_ciil):.2f} \pm {np.std(ct_ciil):.2f} s"
+    # )
 
     # TODO cleanup memories that go > 300s
     # get_dt_logs_vs_memory()
