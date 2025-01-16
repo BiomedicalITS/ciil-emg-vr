@@ -11,7 +11,7 @@ class Familiarization:
         self.classification = classification
 
     def run(self):
-        self.config.sensor.start_streamer()
+        self.config.sensor.get_streamer()
         self.odh = get_online_data_handler(self.config.sensor, False)
 
         # self.odh.visualize_channels(

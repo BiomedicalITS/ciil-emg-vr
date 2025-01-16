@@ -38,6 +38,18 @@ def run_classifier(
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.sendto(b"READY", am_address)
 
+    # Idk why
+    model = None
+    if config.model_type == "CNN":
+        model = load_conv(
+            config.paths.get_experiment_dir() + "model.pth",
+            config.num_channels,
+            config.input_shape,
+        )
+    else:
+        model = load_mlp(config.paths.get_experiment_dir() + "model.pth")
+    oclassi.classifier.classifier = model.to(config.accelerator)
+
     fe = FeatureExtractor()
     oclassi.raw_data.reset_emg()
     with open(save_path, "w", newline="") as csvfile:
@@ -59,7 +71,7 @@ def run_classifier(
                     else:
                         model = load_mlp(model_path)
                     oclassi.classifier.classifier = model.to(config.accelerator)
-
+            # Create new prediction if enough data
             if oclassi.raw_data.get_emg() is None:
                 time.sleep(0.005)
                 continue
@@ -75,7 +87,7 @@ def run_classifier(
             window = get_windows(
                 data[-oclassi.window_size :][:],
                 oclassi.window_size,
-                oclassi.window_size,  # why???
+                oclassi.window_increment,  # why???
             )
 
             # dict: {feature_name: np.array of shape (n_windows, n_features)}
@@ -99,7 +111,6 @@ def run_classifier(
             probabilities = oclassi.classifier.classifier.predict_proba(
                 classifier_input
             )
-
             prediction, probability = oclassi.classifier._prediction_helper(
                 probabilities
             )

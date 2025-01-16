@@ -238,13 +238,13 @@ def do_sgt(
     num_reps: int,
     rep_time: int,
 ):
-    sensor.start_streamer()
+    p = sensor.get_streamer()
     odh = get_online_data_handler(sensor, False)
     screen_guided_training(
         odh, gestures_list, gestures_dir, num_reps, rep_time, data_dir
     )
     odh.stop_listening()
-    sensor.stop_streamer()
+    p.kill()
 
 
 def screen_guided_training(

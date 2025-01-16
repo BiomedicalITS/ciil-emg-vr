@@ -142,115 +142,115 @@ def run_memory_manager(
     is_adapt_mngr_waiting = False
     done = False
     while not done:
-        # try:
-        if not csv_t.is_alive():
-            logger.error("MM: CSV reader thread dead")
-            raise Exception("CSV reader thread died")
+        try:
+            if not csv_t.is_alive():
+                logger.error("MM: CSV reader thread dead")
+                raise Exception("CSV reader thread died")
 
-        ready_to_read, _, _ = select.select([am_sock, unity_in_sock], [], [])
+            ready_to_read, _, _ = select.select([am_sock, unity_in_sock], [], [])
 
-        if len(ready_to_read) == 0:
-            time.sleep(0.005)
-            continue
+            if len(ready_to_read) == 0:
+                time.sleep(0.005)
+                continue
 
-        for sock in ready_to_read:
-            sock: socket.socket
-            udp_packet, address = sock.recvfrom(1024)
-            udp_packet = udp_packet.decode()
-            # logger.info(f"MM: received {udp_packet} from {address}")
-            if sock == unity_in_sock:
-                # Unity sends "Q" when it shuts down / is done
-                if udp_packet == "Q":
-                    done = True
-                    am_sock.sendto(b"STOP", adapt_manager_addr)
-                    del_t = time.perf_counter() - start_time
-                    logger.info(f"MM: done flag at {del_t:.2f} s")
-                    continue
-                # ensure context packet
-                elif not (udp_packet.startswith("P") or udp_packet.startswith("N")):
-                    continue
+            for sock in ready_to_read:
+                sock: socket.socket
+                udp_packet, address = sock.recvfrom(1024)
+                udp_packet = udp_packet.decode()
+                # logger.info(f"MM: received {udp_packet} from {address}")
+                if sock == unity_in_sock:
+                    # Unity sends "Q" when it shuts down / is done
+                    if udp_packet == "Q":
+                        done = True
+                        am_sock.sendto(b"STOP", adapt_manager_addr)
+                        del_t = time.perf_counter() - start_time
+                        logger.info(f"MM: done flag at {del_t:.2f} s")
+                        continue
+                    # ensure context packet
+                    elif not (udp_packet.startswith("P") or udp_packet.startswith("N")):
+                        continue
 
-                with live_data_lock:
-                    adap_data = live_data.copy()
+                    with live_data_lock:
+                        adap_data = live_data.copy()
 
-                # Timestamp is only 0 if the array is not full [timestamp, prediction, *data]
-                if 0 in adap_data[:, 0]:
-                    logger.info("MM: waiting for more CSV data")
-                    continue
+                    # Timestamp is only 0 if the array is not full [timestamp, prediction, *data]
+                    if 0 in adap_data[:, 0]:
+                        logger.info("MM: waiting for more CSV data")
+                        continue
 
-                # logger.info(
-                #     f"Average time between timestamps: {np.mean(np.diff(adap_timestamps))*1000:.3f} ms"
-                # )
+                    # logger.info(
+                    #     f"Average time between timestamps: {np.mean(np.diff(adap_timestamps))*1000:.3f} ms"
+                    # )
 
-                result = decode_unity(
-                    udp_packet,
-                    adap_data,
-                    config.features,
-                    config.sensor.window_size,
-                    len(config.gesture_ids),
-                    unity_to_cid_map,
-                    config.negative_method,
-                )
-
-                if result is None:
-                    total_samples_unfound += 1
-                    logger.warning("MM: no matching window found")
-                    continue
-
-                (
-                    adap_data,
-                    adap_label,
-                    adap_possibilities,
-                    adap_was_pred_good,
-                    timestamp,
-                ) = result
-
-                if len(adap_data) != len(adap_label):
-                    logger.error(
-                        "MM: Adaptation data and adaptation label length mismatch"
+                    result = decode_unity(
+                        udp_packet,
+                        adap_data,
+                        config.features,
+                        config.sensor.window_size,
+                        len(config.gesture_ids),
+                        unity_to_cid_map,
+                        config.negative_method,
                     )
-                    continue
 
-                memory.add_memories(
-                    adap_data,
-                    adap_label,
-                    adap_possibilities,
-                    adap_was_pred_good,
-                    timestamp,
-                )
-                # logger.info(f"MM: memory len {len(memory)}")
+                    if result is None:
+                        total_samples_unfound += 1
+                        logger.warning("MM: no matching window found")
+                        continue
 
-            if sock == am_sock or is_adapt_mngr_waiting:
-                if udp_packet == "WAITING":
-                    # Training pass done so update model
-                    is_adapt_mngr_waiting = True
-                elif udp_packet == "STOP":
-                    logger.info("MM: received STOP from AdaptManager")
-                    return
+                    (
+                        adap_data,
+                        adap_label,
+                        adap_possibilities,
+                        adap_was_pred_good,
+                        timestamp,
+                    ) = result
 
-                if not is_adapt_mngr_waiting:
-                    continue
+                    if len(adap_data) != len(adap_label):
+                        logger.error(
+                            "MM: Adaptation data and adaptation label length mismatch"
+                        )
+                        continue
 
-                if len(memory) == 0:
-                    # don't write empty memory
-                    continue
+                    memory.add_memories(
+                        adap_data,
+                        adap_label,
+                        adap_possibilities,
+                        adap_was_pred_good,
+                        timestamp,
+                    )
+                    # logger.info(f"MM: memory len {len(memory)}")
 
-                t1 = time.perf_counter()
-                memory.write(memory_dir, num_written)
-                del_t = time.perf_counter() - t1
-                num_written += 1
+                if sock == am_sock or is_adapt_mngr_waiting:
+                    if udp_packet == "WAITING":
+                        # Training pass done so update model
+                        is_adapt_mngr_waiting = True
+                    elif udp_packet == "STOP":
+                        logger.info("MM: received STOP from AdaptManager")
+                        return
 
-                logger.info(
-                    f"MM: write #{num_written} with len {len(memory)}, unfound: {total_samples_unfound}, WRITE TIME: {del_t:.2f} s"
-                )
-                memory = Memory()
+                    if not is_adapt_mngr_waiting:
+                        continue
 
-                am_sock.sendto(b"WROTE", adapt_manager_addr)
-                is_adapt_mngr_waiting = False
-    # except Exception as e:
-    #     logger.error(f"MM: Error {e}")
-    #     manager_sock.sendto(b"STOP", adapt_manager_addr)
-    #     return
+                    if len(memory) == 0:
+                        # don't write empty memory
+                        continue
+
+                    t1 = time.perf_counter()
+                    memory.write(memory_dir, num_written)
+                    del_t = time.perf_counter() - t1
+                    num_written += 1
+
+                    logger.info(
+                        f"MM: wrote #{num_written} in {del_t:.2f} s with len {len(memory)}, unfound: {total_samples_unfound}"
+                    )
+                    memory = Memory()
+
+                    am_sock.sendto(b"WROTE", adapt_manager_addr)
+                    is_adapt_mngr_waiting = False
+        except Exception as e:
+            logger.error(f"MM: Error {e}")
+            am_sock.sendto(b"STOP", adapt_manager_addr)
+            return
 
 
 def decode_unity(

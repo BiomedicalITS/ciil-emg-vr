@@ -47,6 +47,7 @@ class Game:
             self.odh,
             self.features,
             port=self.classifier_port,
+            ip="localhost",
         )
 
         # Delete old data if applicable
@@ -110,6 +111,3 @@ class Game:
             mm_sock,
             oclassi_sock,
         )
-
-        # because we are running daemon processes they die as main process dies
-        models.save_nn(self.config.model, self.paths.get_model())

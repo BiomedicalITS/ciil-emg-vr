@@ -101,7 +101,7 @@ if __name__ == "__main__":
 
     # ========== Data parameters ==========
     sample_data = True
-    sample_data = False
+    # sample_data = False
 
     finetune = False
     # finetune = True
@@ -112,6 +112,7 @@ if __name__ == "__main__":
     subjects = [0]
 
     # steps = [ExperimentStage.FAMILIARIZATION]
+    # steps = [ExperimentStage.VISUALIZE_CLASSIFIER]
     # steps = [ExperimentStage.SG_TRAIN, ExperimentStage.SG_PRE_TEST]
     # steps = [ExperimentStage.SG_PRE_TEST]
     steps = [ExperimentStage.GAME]
@@ -123,7 +124,7 @@ if __name__ == "__main__":
     #     ExperimentStage.SG_POST_TEST,
     # ]
 
-    # param_1 = False
+    param_1 = False
     param_1 = True
 
     for subject in subjects:
