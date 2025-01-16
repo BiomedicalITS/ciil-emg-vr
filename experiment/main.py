@@ -109,13 +109,13 @@ if __name__ == "__main__":
     # ========== Experiment parameters ==========
 
     subjects = [0, 1, 2, 3, 4, 5, 6, 7, 8]
-    # subjects = [8]
+    subjects = [0]
 
     # steps = [ExperimentStage.FAMILIARIZATION]
     # steps = [ExperimentStage.SG_TRAIN, ExperimentStage.SG_PRE_TEST]
     # steps = [ExperimentStage.SG_PRE_TEST]
-    # steps = [ExperimentStage.GAME]
-    steps = [ExperimentStage.SG_POST_TEST]
+    steps = [ExperimentStage.GAME]
+    # steps = [ExperimentStage.SG_POST_TEST]
     # steps = [ExperimentStage.SG_PRE_TEST, ExperimentStage.SG_POST_TEST]
     # steps = [
     #     ExperimentStage.SG_TRAIN,
@@ -123,7 +123,7 @@ if __name__ == "__main__":
     #     ExperimentStage.SG_POST_TEST,
     # ]
 
-    param_1 = False
+    # param_1 = False
     param_1 = True
 
     for subject in subjects:

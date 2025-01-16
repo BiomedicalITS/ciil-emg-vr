@@ -36,41 +36,29 @@ class EmgSensor:
         self.set_window_increment(window_inc_ms)
         self.set_majority_vote(majority_vote_ms)
 
-        self.p = None
-
     def get_name(self):
         return self.sensor_type.value
 
-    def start_streamer(self):
+    def get_streamer(self):
         """Setup the streamer for the device
 
         Returns:
             process handle
         """
-        if self.p is not None:
-            return self.p
-        elif self.sensor_type == EmgSensorType.MyoArmband:
-            self.p = myo_streamer(filtered=False, imu=True)
+        if self.sensor_type == EmgSensorType.MyoArmband:
+            return myo_streamer(filtered=False, imu=False)
         elif self.sensor_type == EmgSensorType.BioArmband:
-            self.p = sifibridge_streamer(
+            return sifibridge_streamer(
                 device="BioArmband",
                 emg=True,
-                imu=True,
+                imu=False,
                 notch_on=True,
                 notch_freq=self.notch_freq,
                 emg_fir_on=True,
                 emg_fir=self.bandpass_freqs,
             )
         elif self.sensor_type == EmgSensorType.Emager:
-            self.p = emager_streamer()
-
-        return self.p
-
-    def stop_streamer(self):
-        """Stop the streamer for the device"""
-        if self.p is not None:
-            self.p.terminate()
-            self.p = None
+            return emager_streamer()
 
     def set_window_size(self, ms: int):
         if ms == 0:

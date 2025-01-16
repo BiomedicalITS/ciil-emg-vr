@@ -1,6 +1,6 @@
-from threading import Lock, Thread
+import logging
+from multiprocessing import Process
 import os
-
 import socket
 import time
 
@@ -18,9 +18,9 @@ import super_classi
 class Game:
     def __init__(self, config: Config):
         self.classifier_port = 12347
-        self.mem_manager_server_port = 12348
-        self.adap_manager_port = 12349
-        self.unity_port = 12350
+        self.am_mm_port = 12348
+        self.am_oclassi_port = 12349
+        self.unity_mm_port = 12350
 
         self.config = config
         self.paths = config.paths
@@ -48,7 +48,6 @@ class Game:
             self.features,
             port=self.classifier_port,
         )
-        self.model_lock = Lock()
 
         # Delete old data if applicable
         for f in os.listdir(self.paths.get_experiment_dir()):
@@ -57,12 +56,13 @@ class Game:
             os.remove(f"{self.paths.get_experiment_dir()}{f}")
 
     def run(self):
+
+        self.sensor.get_streamer()
+
+        # Wait for Unity to be ready
         print("Waiting for Unity to send 'READY'...")
-
-        self.sensor.start_streamer()
-
         unity_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        unity_sock.bind(("localhost", self.unity_port))
+        unity_sock.bind(("localhost", self.unity_mm_port))
         while True:
             unity_packet, addr = unity_sock.recvfrom(1024)
             print(f"Received: {unity_packet.decode()} from {addr}")
@@ -77,31 +77,38 @@ class Game:
 
         print("Starting the Python Game Stage!")
 
-        Thread(
-            target=super_classi.run_classifier,
+        # Create server sockets
+        mm_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        mm_sock.bind(("localhost", self.am_mm_port))
+
+        oclassi_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        oclassi_sock.bind(("localhost", self.am_oclassi_port))
+
+        Process(
+            target=memory_manager.run_memory_manager,
             args=(
-                self.oclassi,
-                self.paths.get_live() + "preds.csv",
-                self.model_lock,
+                self.config,
+                self.unity_mm_port,
+                self.am_mm_port,
             ),
             daemon=True,
         ).start()
 
-        Thread(
-            target=memory_manager.run_memory_manager,
+        Process(
+            target=super_classi.run_classifier,
             args=(
                 self.config,
-                self.unity_port,
-                self.mem_manager_server_port,
+                self.oclassi,
+                self.paths.get_live() + "preds.csv",
+                self.am_oclassi_port,
             ),
             daemon=True,
         ).start()
 
         adapt_manager.run_adaptation_manager(
             self.config,
-            self.model_lock,
-            self.mem_manager_server_port,
-            self.oclassi,
+            mm_sock,
+            oclassi_sock,
         )
 
         # because we are running daemon processes they die as main process dies

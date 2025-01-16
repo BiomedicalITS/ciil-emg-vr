@@ -148,8 +148,8 @@ def __main():
     X_test = torch.tensor(val_win).float()
     y_test = torch.tensor(val_labels).long()
 
-    # model = EmgLSTM(np.prod(sensor.emg_shape), 128, 2, len(g.FUNCTIONAL_SET)).to("cuda")
-    model = EmgCnnLstm(X_train.shape[1], 128, len(g.FUNCTIONAL_SET)).to("cuda")
+    model = EmgLSTM(np.prod(sensor.emg_shape), 128, 1, len(g.FUNCTIONAL_SET)).to("cuda")
+    # model = EmgCnnLstm(X_train.shape[1], 128, len(g.FUNCTIONAL_SET)).to("cuda")
 
     print_model_size(model)
 
